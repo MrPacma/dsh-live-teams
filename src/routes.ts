@@ -40,6 +40,7 @@ export const LIVE_TEAMS_TEAM_LEAD_ROUTE = '/api/live-teams/team/lead'
 export const LIVE_TEAMS_TEAM_BRIEFING_OPEN_ROUTE = '/api/live-teams/team/briefing/open'
 export const LIVE_TEAMS_MEMBER_GRANT_ROUTE = '/api/live-teams/member/grant'
 export const LIVE_TEAMS_DISPATCH_ROUTE = '/api/live-teams/dispatch'
+export const LIVE_TEAMS_TEAM_ROTATION_ROUTE = '/api/live-teams/team/rotation'
 export const LIVE_TEAMS_TASKS_ROUTE = '/api/live-teams/tasks'
 export const LIVE_TEAMS_TASK_ROUTE = '/api/live-teams/task'
 export const LIVE_TEAMS_TASK_ACCEPT_ROUTE = '/api/live-teams/task/accept'
@@ -453,6 +454,28 @@ export type LiveTeamsRouteOptions = {
   readonly readDispatch?: () => Promise<LiveTeamsDispatch | undefined>
   /** Flip the dispatch switch under the actor's own authority; the store refuses a no-op. */
   readonly setDispatch?: (request: { mode: 'auto' | 'paused'; reason?: string; actor: string }) => Promise<{ from: string; to: string }>
+  /** Rotation limits in force for this team, with where they came from. */
+  readonly readRotation?: () => Promise<LiveTeamsRotation | undefined>
+  /** Set this team's rotation overrides; the human's own surface, like dispatch. */
+  readonly setRotation?: (request: LiveTeamsRotationRequest & { actor: string }) => Promise<LiveTeamsRotation>
+}
+
+export type LiveTeamsRotation = {
+  readonly enabled: boolean
+  readonly maxContextTokens: number
+  readonly maxCompletedTasks: number
+  readonly cooldownMs: number
+  readonly maxRotationsPerPass: number
+  /** `team` when the panel has overrides in force, `profile` when the deployment row decides. */
+  readonly source: 'team' | 'profile'
+  readonly revision: number
+}
+
+export type LiveTeamsRotationRequest = {
+  readonly enabled?: boolean
+  readonly maxContextTokens?: number
+  readonly maxCompletedTasks?: number
+  readonly expectedRevision: number
 }
 
 export type LiveTeamsSnapshotMember = {
@@ -2053,6 +2076,67 @@ async function handleDispatch(request: LiveTeamsRequest, response: LiveTeamsResp
   }, true)
 }
 
+/**
+ * The panel's rotation control.
+ *
+ * Rotation replaces a member's Session, so this is the human's surface exactly like dispatch: the
+ * route admits the caller, the store commits under an expected revision, and the journal records
+ * what changed. It is a separate route from `/team` because it must stay readable on a team whose
+ * profile row says nothing about rotation at all.
+ */
+async function handleTeamRotation(request: LiveTeamsRequest, response: LiveTeamsResponse, ctx: LiveTeamsRouteContext, options: LiveTeamsRouteOptions): Promise<void> {
+  if (!authorityAllowed(request, ctx.webServer.port)) { sendJson(response, 403, { error: 'live-teams request authority rejected' }); return }
+  if (request.method === 'GET') {
+    await withResolvedOptions(request, response, options, async (resolved) => {
+      if (resolved.readRotation === undefined) { sendJson(response, 503, { error: 'live-teams rotation unavailable' }); return }
+      try {
+        const rotation = await resolved.readRotation()
+        if (rotation === undefined) { sendJson(response, 503, { error: 'live-teams rotation unavailable' }); return }
+        sendJson(response, 200, rotation)
+      } catch (error) { sendJson(response, taskErrorStatus(error), taskErrorBody(error)) }
+    }, true)
+    return
+  }
+  if (request.method !== 'POST' || bodyContentType(request) !== 'application/json') {
+    sendJson(response, request.method === 'POST' ? 400 : 405, { error: request.method === 'POST' ? 'live-teams invalid request' : 'live-teams method not allowed' })
+    return
+  }
+  let parsed: LiveTeamsRotationRequest | undefined
+  try { parsed = rotationRequest(record(JSON.parse(await requestBody(request)) as unknown)) } catch { parsed = undefined }
+  if (parsed === undefined) { sendJson(response, 400, { error: 'live-teams invalid request' }); return }
+  await withResolvedOptions(request, response, options, async (resolved) => {
+    if (resolved.setRotation === undefined) { sendJson(response, 503, { error: 'live-teams rotation unavailable' }); return }
+    try {
+      sendJson(response, 200, await resolved.setRotation({ ...parsed as LiveTeamsRotationRequest, actor: actorFor(request, ctx.webServer.port) }))
+    } catch (error) { sendJson(response, taskErrorStatus(error), taskErrorBody(error)) }
+  }, true)
+}
+
+/** A limit is a token or task count: a non-negative integer, and bounded so a typo is refused. */
+const ROTATION_LIMIT_CEILING = 100_000_000
+function rotationRequest(body: Record<string, unknown>): LiveTeamsRotationRequest | undefined {
+  const enabled = body.enabled
+  if (enabled !== undefined && typeof enabled !== 'boolean') return undefined
+  const limit = (value: unknown): number | undefined | null => {
+    if (value === undefined) return undefined
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > ROTATION_LIMIT_CEILING) return null
+    return value
+  }
+  const maxContextTokens = limit(body.maxContextTokens)
+  const maxCompletedTasks = limit(body.maxCompletedTasks)
+  if (maxContextTokens === null || maxCompletedTasks === null) return undefined
+  if (!Number.isInteger(body.expectedRevision)) return undefined
+  // A request that changes nothing is refused rather than written: the panel would otherwise show a
+  // save that committed a revision nobody asked for.
+  if (enabled === undefined && maxContextTokens === undefined && maxCompletedTasks === undefined) return undefined
+  return {
+    ...(enabled === undefined ? {} : { enabled }),
+    ...(maxContextTokens === undefined ? {} : { maxContextTokens }),
+    ...(maxCompletedTasks === undefined ? {} : { maxCompletedTasks }),
+    expectedRevision: Number(body.expectedRevision),
+  }
+}
+
 async function handleTasksList(request: LiveTeamsRequest, response: LiveTeamsResponse, ctx: LiveTeamsRouteContext, options: LiveTeamsRouteOptions): Promise<void> {
   if (!authorityAllowed(request, ctx.webServer.port)) { sendJson(response, 403, { error: 'live-teams request authority rejected' }); return }
   if (request.method !== 'GET') { sendJson(response, 405, { error: 'live-teams method not allowed' }); return }
@@ -2560,6 +2644,7 @@ export function registerLiveTeamsRoutes(ctx: LiveTeamsRouteContext, options: Liv
   registered.push(ctx.webServer.register({ kind: 'exact', path: LIVE_TEAMS_MESSAGES_ACKNOWLEDGE_ROUTE, handler: (request, response) => withResolvedOptions(request, response, options, (resolved) => handleMessagesAcknowledge(request, response, ctx, resolved), true) }))
   registered.push(ctx.webServer.register({ kind: 'exact', path: LIVE_TEAMS_ATTENTION_ROUTE, handler: (request, response) => withResolvedOptions(request, response, options, (resolved) => handleAttentionList(request, response, ctx, resolved), true) }))
   registered.push(ctx.webServer.register({ kind: 'exact', path: LIVE_TEAMS_DISPATCH_ROUTE, handler: (request, response) => handleDispatch(request, response, ctx, options) }))
+  registered.push(ctx.webServer.register({ kind: 'exact', path: LIVE_TEAMS_TEAM_ROTATION_ROUTE, handler: (request, response) => handleTeamRotation(request, response, ctx, options) }))
   registered.push(ctx.webServer.register({ kind: 'exact', path: LIVE_TEAMS_ROLES_ROUTE, handler: (request, response) => withResolvedOptions(request, response, options, (resolved) => handleRolesList(request, response, ctx, resolved)) }))
   registered.push(ctx.webServer.register({ kind: 'exact', path: LIVE_TEAMS_ROLES_OPEN_ROUTE, handler: (request, response) => withResolvedOptions(request, response, options, (resolved) => handleRolesOpen(request, response, ctx, resolved)) }))
   registered.push(ctx.webServer.register({ kind: 'exact', path: LIVE_TEAMS_ROLES_OVERRIDE_ROUTE, handler: (request, response) => withResolvedOptions(request, response, options, (resolved) => handleRolesOverride(request, response, ctx, resolved)) }))

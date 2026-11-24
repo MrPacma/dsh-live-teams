@@ -3,12 +3,14 @@ import {
   DEFAULT_ROTATION_CONFIG,
   createRotationService,
   decideRotation,
+  effectiveRotationConfig,
   readRotationConfig,
   type RotationConfig,
   type RotationFacts,
   type RotationOutcome,
   type RotationPorts,
 } from './rotation.js'
+import { readTeamRotation } from './team-store.js'
 import { contextTokensOf } from './session-bridge.js'
 import type { MemberRecord, TeamState } from './team-store.js'
 
@@ -101,8 +103,38 @@ describe('decideRotation', () => {
   })
 })
 
-describe('contextTokensOf', () => {
-  it('reads the newest prompt size, not a delta', () => {
+/**
+ * Two layers decide the limits: the deployment row, and what the human set in the Team tab. The
+ * second is a *partial* override on purpose — a team can change one limit and leave the rest to the
+ * operator, and turning rotation off in the panel must not erase the profile's numbers.
+ */
+describe('effectiveRotationConfig', () => {
+  const base = config({ maxContextTokens: 150_000, maxCompletedTasks: 5 })
+
+  it('overrides the deployment row key by key', () => {
+    expect(effectiveRotationConfig(base, { enabled: false })).toMatchObject({ enabled: false, maxContextTokens: 150_000, maxCompletedTasks: 5 })
+    expect(effectiveRotationConfig(base, { maxContextTokens: 40_000 })).toMatchObject({ enabled: true, maxContextTokens: 40_000, maxCompletedTasks: 5 })
+    expect(effectiveRotationConfig(base, undefined)).toEqual(base)
+  })
+
+  it('ignores a malformed override instead of silently disabling a limit', () => {
+    for (const broken of [null, 'nonsense', 7, { enabled: 'yes' }, { maxContextTokens: -5 }, { maxContextTokens: 1.5 }, { maxCompletedTasks: Number.NaN }]) {
+      expect(effectiveRotationConfig(base, broken)).toMatchObject({ enabled: true, maxContextTokens: 150_000, maxCompletedTasks: 5 })
+    }
+  })
+})
+
+describe('readTeamRotation', () => {
+  it('reads an absent block, a partial override, and refuses a malformed one', () => {
+    expect(readTeamRotation({})).toEqual({})
+    expect(readTeamRotation({ rotation: { enabled: true, maxCompletedTasks: 3 } })).toEqual({ enabled: true, maxCompletedTasks: 3 })
+    expect(() => readTeamRotation({ rotation: { enabled: 'yes' } as never })).toThrow()
+    expect(() => readTeamRotation({ rotation: { maxContextTokens: -1 } })).toThrow()
+    expect(() => readTeamRotation({ rotation: { maxContextTokens: 1.5 } })).toThrow()
+  })
+})
+
+describe('contextTokensOf', () => {  it('reads the newest prompt size, not a delta', () => {
     const events = [
       { type: 'assistant/message', seq: 1, data: { usage: { inputTokens: 100, cacheReadTokens: 900, outputTokens: 50, totalTokens: 1050 } } },
       { type: 'assistant/message', seq: 2, data: { usage: { inputTokens: 10, cacheReadTokens: 150_000, outputTokens: 40, totalTokens: 150_050 } } },
@@ -262,6 +294,15 @@ describe('rotation service', () => {
     expect(await createRotationService(h.ports).check()).toEqual([])
     expect(h.audits.map((event) => event.kind)).toContain('session/orphaned')
     expect(h.state.archivedMemberIds).toEqual([])
+  })
+
+  it('takes the limits from the team state when a resolver is wired', async () => {
+    const h = harness({ context: 200_000 })
+    // The deployment row is off; the team's own block turns rotation on with its own limit.
+    const base = config({ enabled: false })
+    h.ports = { ...h.ports, config: base, configOf: (team) => effectiveRotationConfig(base, team.rotation) }
+    h.state = { ...h.state, rotation: { enabled: true, maxContextTokens: 100_000 } }
+    expect(await createRotationService(h.ports).check()).toHaveLength(1)
   })
 
   it('shares one pass between concurrent callers', async () => {

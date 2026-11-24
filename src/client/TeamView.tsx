@@ -4,7 +4,7 @@ import { IconChevronDown, IconEdit, IconPause, IconPlay, IconPlus, IconRefresh }
 import type { DispatchTaskVerdict, MessageKind, TaskStatus, TaskSummary, TeamAdoptionCandidate, TeamAttemptStatus, TeamCandidate, TeamDispatch, TeamInboxMessage, TeamMember, TeamSnapshot, TeamRoles, TeamSubmissionScope, TeamTaskDetail } from './api.js'
 import type { LocaleKey } from './locales.js'
 import { memberNameFromTitle } from './member-name.js'
-import { acceptTeamTask, acknowledgeTeamMessage, adoptTeam, addTeamMember, cancelTeamTask, resumeTeamTask, createTeamTask, revokeTeamTask, updateTeamTask, canOpenWorkspaceRoles, changeMemberAvailability, changeMemberDisplayName, changeMemberRole, createTeamSessionMember, disableTeam, enableTeam, fetchTeamAdoptionCandidates, fetchTeamAttention, fetchTeamCandidates, fetchTeamInbox, fetchTeamLead, fetchTeamRoles, fetchTeamSnapshot, fetchTeamState, fetchTeamTask, fetchTeamTasks, grantTeamContact, interruptTeamMember, LiveTeamsApiError, openTeamBriefing, openTeamRoles, overrideTeamRole, removeTeamMember, renameTeam, reviseTeamTask, sendTeamMessage, setTeamLead, fetchTeamDispatch, setTeamDispatch, type TeamStateStatus } from './api.js'
+import { acceptTeamTask, acknowledgeTeamMessage, adoptTeam, addTeamMember, cancelTeamTask, resumeTeamTask, createTeamTask, revokeTeamTask, updateTeamTask, canOpenWorkspaceRoles, changeMemberAvailability, changeMemberDisplayName, changeMemberRole, createTeamSessionMember, disableTeam, enableTeam, fetchTeamAdoptionCandidates, fetchTeamAttention, fetchTeamCandidates, fetchTeamInbox, fetchTeamLead, fetchTeamRoles, fetchTeamSnapshot, fetchTeamState, fetchTeamTask, fetchTeamTasks, grantTeamContact, interruptTeamMember, LiveTeamsApiError, openTeamBriefing, openTeamRoles, overrideTeamRole, removeTeamMember, renameTeam, reviseTeamTask, sendTeamMessage, setTeamLead, fetchTeamDispatch, setTeamDispatch, fetchTeamRotation, setTeamRotation, type TeamRotation, type TeamStateStatus } from './api.js'
 import './styles.js'
 import { SidePanel } from './SidePanel.js'
 import { TeamGlyph } from './TeamGlyph.js'
@@ -327,6 +327,12 @@ export function TeamView(props: TeamViewProps): React.ReactElement {
   const [teamLoading, setTeamLoading] = useState(true)
   const [teamBusy, setTeamBusy] = useState(false)
   const [leadMemberId, setLeadMemberId] = useState<string | undefined>(undefined)
+  /** Rotation limits in force, and the human's unsaved edits to them. */
+  const [rotation, setRotation] = useState<TeamRotation | null>(null)
+  const [rotationBusy, setRotationBusy] = useState(false)
+  const [rotationDraft, setRotationDraft] = useState<{ enabled: boolean; maxContextTokens: string; maxCompletedTasks: string } | null>(null)
+  /** Card-local feedback: a rotation read or save failure must not hijack the team-wide notice. */
+  const [rotationNotice, setRotationNotice] = useState<string | null>(null)
   const [inbox, setInbox] = useState<TeamInboxMessage[]>([])
   const [inboxLoading, setInboxLoading] = useState(true)
   /** Unread count for the folded header, read from the same projection as the header chip. */
@@ -473,6 +479,35 @@ export function TeamView(props: TeamViewProps): React.ReactElement {
     }).finally(() => setDispatchBusy(false))
   }, [dispatch, refreshTasks, session, t])
 
+  /**
+   * A limit typed into the card, or `undefined` when the field is not a non-negative integer.
+   * Reading it here keeps the disabled state of Apply and the request body in agreement.
+   */
+  const rotationLimit = (value: string): number | undefined => {
+    if (!/^\d+$/u.test(value.trim())) return undefined
+    const parsed = Number(value)
+    return Number.isSafeInteger(parsed) ? parsed : undefined
+  }
+  const rotationContextValue = rotationDraft?.maxContextTokens ?? (rotation === null ? '' : String(rotation.maxContextTokens))
+  const rotationTaskValue = rotationDraft?.maxCompletedTasks ?? (rotation === null ? '' : String(rotation.maxCompletedTasks))
+  const rotationEnabledValue = rotationDraft?.enabled ?? rotation?.enabled ?? false
+  const rotationDirty = rotation !== null && (rotationContextValue !== String(rotation.maxContextTokens)
+    || rotationTaskValue !== String(rotation.maxCompletedTasks) || rotationEnabledValue !== rotation.enabled)
+  const rotationApplicable = rotationDirty && rotationLimit(rotationContextValue) !== undefined && rotationLimit(rotationTaskValue) !== undefined
+
+  const saveRotation = useCallback(() => {
+    const context = rotationLimit(rotationContextValue)
+    const tasks = rotationLimit(rotationTaskValue)
+    if (rotation === null || context === undefined || tasks === undefined) return
+    setRotationBusy(true)
+    void setTeamRotation({ enabled: rotationEnabledValue, maxContextTokens: context, maxCompletedTasks: tasks, expectedRevision: rotation.revision }, session)
+      .then((next) => { setRotation(next); setRotationDraft(null); setRotationNotice(t('rotationSaved')) })
+      .catch((cause: unknown) => setRotationNotice(cause instanceof LiveTeamsApiError ? cause.error : t('rotationSaveFailed')))
+      .finally(() => setRotationBusy(false))
+    // rotationLimit is a pure local helper, not a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rotation, rotationContextValue, rotationEnabledValue, rotationTaskValue, session, t])
+
   /** Include all projected facts, especially observed status, contact grants and revisions. */
   const memberSignature = (value: TeamSnapshot | null): string => JSON.stringify(value)
 
@@ -484,6 +519,9 @@ export function TeamView(props: TeamViewProps): React.ReactElement {
     // A failed read must not look like "no lead is set": those are different facts,
     // and showing the second when the first happened is a silent lie.
     void fetchTeamLead(session).then((result) => setLeadMemberId(result.leadMemberId)).catch(() => { if (!silent) setNotice(t('leadLoadFailed')) })
+    // The card can be missing on a host that predates the route: that is a fact about the host, and
+    // the card says so locally instead of replacing the team-wide notice the rest of the panel uses.
+    void fetchTeamRotation(session).then((result) => setRotation(result)).catch(() => { if (!silent) setRotationNotice(t('rotationLoadFailed')) })
     void fetchTeamSnapshot(session).then((next) => {
       setSnapshot((current) => {
         // A background poll that changes nothing must not replace the snapshot: rebuilding
@@ -1111,6 +1149,20 @@ export function TeamView(props: TeamViewProps): React.ReactElement {
         <label className="dshLiveTeamsLeadControl"><span>{t('lead')}</span><select value={leadMemberId ?? ''} disabled={teamBusy} onChange={(event) => { setTeamBusy(true); void setTeamLead(event.target.value, session).then(() => { setLeadMemberId(event.target.value); setNotice(t('leadUpdated')) }).catch(() => setNotice(t('teamActionFailed'))).finally(() => setTeamBusy(false)) }}><option value="">{t('leadUnset')}</option>{members.map((member) => <option key={member.memberId} value={member.memberId}>{member.displayName}</option>)}</select></label>
         <button className="dshLiveTeamsTeamToggle" type="button" disabled={teamBusy} onClick={() => setDisableConfirm(true)}>{t('disableTeam')}</button>
       </div>
+      {rotation === null ? (rotationNotice === null ? null : <p className="dshLiveTeamsRotationHint" role="status">{rotationNotice}</p>) : <section className="dshLiveTeamsRotation" aria-labelledby="dsh-live-teams-rotation-title">
+        <div className="dshLiveTeamsRotationHead">
+          <strong id="dsh-live-teams-rotation-title">{t('rotationHeading')}</strong>
+          <span className="dshLiveTeamsRotationState">{rotation.source === 'team' ? t('rotationSourceTeam') : t('rotationSourceProfile')}</span>
+        </div>
+        <p className="dshLiveTeamsRotationHint">{t('rotationHint')}</p>
+        <div className="dshLiveTeamsRotationControls">
+          <button className={`dshLiveTeamsSegmentedButton dshLiveTeamsRotationToggle${rotationEnabledValue ? ' dshLiveTeamsSegmentedButtonActive' : ''}`} type="button" aria-pressed={rotationEnabledValue} disabled={rotationBusy} onClick={() => setRotationDraft({ enabled: !rotationEnabledValue, maxContextTokens: rotationContextValue, maxCompletedTasks: rotationTaskValue })}>{rotationEnabledValue ? t('rotationOn') : t('rotationOff')}</button>
+          <label className="dshLiveTeamsModalField"><span className="dshLiveTeamsFieldLabel">{t('rotationContextLimit')}</span><input type="number" min={0} step={1000} inputMode="numeric" value={rotationContextValue} disabled={rotationBusy} onChange={(event) => setRotationDraft({ enabled: rotationEnabledValue, maxContextTokens: event.target.value, maxCompletedTasks: rotationTaskValue })} /></label>
+          <label className="dshLiveTeamsModalField"><span className="dshLiveTeamsFieldLabel">{t('rotationTaskLimit')}</span><input type="number" min={0} step={1} inputMode="numeric" value={rotationTaskValue} disabled={rotationBusy} onChange={(event) => setRotationDraft({ enabled: rotationEnabledValue, maxContextTokens: rotationContextValue, maxCompletedTasks: event.target.value })} /></label>
+          <button className="dshLiveTeamsAddButton" type="button" disabled={rotationBusy || !rotationApplicable} onClick={saveRotation}>{t('rotationSave')}</button>
+        </div>
+        <p className="dshLiveTeamsRotationHint" role="status">{rotationNotice ?? (rotationDirty && !rotationApplicable ? t('rotationPending') : t('rotationZeroHint'))}</p>
+      </section>}
       <section className={`dshLiveTeamsBriefing${briefingExpanded ? ' dshLiveTeamsPanelExpanded' : ''}`} aria-labelledby="dsh-live-teams-briefing-title"><button className="dshLiveTeamsCollapseHeader" type="button" aria-expanded={briefingExpanded} onClick={() => setBriefingExpanded((current) => !current)}><span className="dshLiveTeamsDisclosure" aria-hidden="true"><IconChevronDown size={14} /></span><span className="dshLiveTeamsCollapseHeaderCopy"><strong id="dsh-live-teams-briefing-title">{t('briefing')}</strong><span>{briefingExpanded ? t('briefingHint') : briefingSummary}</span></span></button><button className="dshLiveTeamsAddButton" type="button" onClick={() => { void openTeamBriefing(session).then(() => setNotice(t('briefingOpened'))).catch(() => setNotice(t('openBriefingFailed'))) }} disabled={teamState?.openAvailable !== true}>{t('openBriefing')}</button>{briefingExpanded && <pre>{briefingText || t('briefingEmpty')}</pre>}</section>
         <section className={`dshLiveTeamsRoles dshLiveTeamsControlDisclosure${rolesExpanded ? ' dshLiveTeamsPanelExpanded' : ''}`} aria-labelledby="dsh-live-teams-roles-title">
           <button className="dshLiveTeamsCollapseHeader" type="button" aria-expanded={rolesExpanded} onClick={() => setRolesExpanded((current) => !current)}><span className="dshLiveTeamsDisclosure" aria-hidden="true"><IconChevronDown size={14} /></span><span className="dshLiveTeamsCollapseHeaderCopy"><strong id="dsh-live-teams-roles-title">{t('roles')}</strong><span>{rolesExpanded ? t('rolesCaption') : `${roleOptions.length} ${t('rolesCount')}`}</span></span></button>

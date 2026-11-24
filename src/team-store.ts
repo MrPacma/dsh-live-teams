@@ -42,6 +42,19 @@ export interface DispatchSwitch {
   at: number
 }
 
+/**
+ * Rotation limits set from the Team tab.
+ *
+ * Absent keys fall back to the deployment row in the profile, so a team can turn rotation on or
+ * change one limit without an operator editing `cordis.patch.yml` — and can turn it off again
+ * without losing what the profile says.
+ */
+export interface TeamRotationSettings {
+  enabled?: boolean
+  maxContextTokens?: number
+  maxCompletedTasks?: number
+}
+
 export interface TeamState {
   schemaVersion: number
   revision: number
@@ -60,6 +73,8 @@ export interface TeamState {
   contactGrants?: ContactGrant[]
   /** Dispatch switch; absent means `auto` (the pre-B29 state). */
   dispatch?: DispatchSwitch
+  /** Rotation overrides set by the human in the Team tab (B43). */
+  rotation?: TeamRotationSettings
   [key: string]: unknown
 }
 
@@ -786,6 +801,28 @@ export function readDispatchSwitch(state: TeamState): DispatchSwitch {
   if (!Number.isInteger(candidate.at)) throw new LiveTeamsError(ERROR_CODES.STATE_CORRUPT, 'state dispatch timestamp is invalid')
   if (candidate.reason !== undefined && typeof candidate.reason !== 'string') throw new LiveTeamsError(ERROR_CODES.STATE_CORRUPT, 'state dispatch reason is invalid')
   return candidate as unknown as DispatchSwitch
+}
+
+/**
+ * Read the team's rotation overrides strictly: an absent block means "nothing set here, use the
+ * profile", and a malformed one is corrupt state rather than a quiet fallback to someone's guess
+ * about which limit was meant.
+ */
+export function readTeamRotation(state: Pick<TeamState, 'rotation'>): TeamRotationSettings {
+  const candidate = objectRecord(state.rotation)
+  if (candidate === undefined) return {}
+  const settings: TeamRotationSettings = {}
+  if (candidate.enabled !== undefined) {
+    if (typeof candidate.enabled !== 'boolean') throw new LiveTeamsError(ERROR_CODES.STATE_CORRUPT, 'state rotation switch is invalid')
+    settings.enabled = candidate.enabled
+  }
+  for (const key of ['maxContextTokens', 'maxCompletedTasks'] as const) {
+    const raw = candidate[key]
+    if (raw === undefined) continue
+    if (!Number.isInteger(raw) || Number(raw) < 0) throw new LiveTeamsError(ERROR_CODES.STATE_CORRUPT, `state rotation ${key} is invalid`)
+    settings[key] = Number(raw)
+  }
+  return settings
 }
 
 export function readTeamStateSync(request: { workspacePath: string; teamId: string }): TeamState | undefined {

@@ -6,7 +6,7 @@ import { access, copyFile, mkdir } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { ERROR_CODES, LiveTeamsError } from './errors.js'
 import { checkCompatibility } from './compatibility.js'
-import { resolveLeadMemberId, TeamStore, readDispatchSwitch, readMemberBySessionSync, readTeamStateSync, type ContactTarget, type MemberRecord, type TeamState } from './team-store.js'
+import { resolveLeadMemberId, TeamStore, readDispatchSwitch, readMemberBySessionSync, readTeamRotation, readTeamStateSync, type ContactTarget, type MemberRecord, type TeamRotationSettings, type TeamState } from './team-store.js'
 import { readRoleRegistry, readRoleRegistrySync, type RoleRegistry } from './roles.js'
 import { createSessionBridge, type SessionBridge, type SessionDescriptor, type SessionQuerySource } from './session-bridge.js'
 import { createCommandQueue, type CommandRecord, type SessionCommandQueue } from './command-queue.js'
@@ -19,7 +19,7 @@ import { createSubmissionNoticePort, submissionNoticeDeliveryAllowed } from './s
 import { createLifecycleNoticePort, lifecycleNoticeDeliveryAllowed } from './lifecycle-notice.js'
 import { createDispatcher, projectDispatch, type CodingDispatch, type Dispatcher, type ReconcileResult } from './dispatch.js'
 import { createMembershipContextProvider, type MembershipContextBinding, type MembershipContextProvider } from './context-provider.js'
-import { createRotationService, readRotationConfig, type RotationFacts, type RotationOutcome } from './rotation.js'
+import { createRotationService, effectiveRotationConfig, readRotationConfig, type RotationFacts, type RotationOutcome } from './rotation.js'
 import { registerMemberToolsIfAvailable } from './member-tools.js'
 import { createTaskStore, permittedContacts, type TaskStore } from './task-store.js'
 import { gitChangedPaths, gitCommittedPaths, workspaceMode } from './changed-paths.js'
@@ -35,6 +35,8 @@ import {
   type LiveTeamsCreateSessionMemberRequest,
   type LiveTeamsCreateSessionMemberResult,
   type LiveTeamsDispatch,
+  type LiveTeamsRotation,
+  type LiveTeamsRotationRequest,
   type LiveTeamsRemoveMemberRequest,
   type LiveTeamsRemoveMemberResult,
   type LiveTeamsMutation,
@@ -557,6 +559,9 @@ export function apply(ctx: HostContext, config: PluginConfig = {}): void {
       teamId: input.teamId,
       workspaceId: input.id,
       config: rotation.config,
+      // The panel's overrides win over the deployment row, and both are re-read every pass so a
+      // change made in the Team tab takes effect on the next sweep instead of at the next restart.
+      configOf: (team) => effectiveRotationConfig(rotation.config, team.rotation),
       readTeam: async () => (await ensureStore()).open(),
       commit: async (request) => await (await ensureStore()).commit(input.teamId, request),
       factsOf: rotationFacts,
@@ -670,6 +675,38 @@ export function apply(ctx: HostContext, config: PluginConfig = {}): void {
       const result = await store_.setDispatchMode(input.teamId, mode, { actor, ...(reason === undefined ? {} : { reason }) }, current.revision)
       await audit({ kind: mode === 'paused' ? 'dispatch/paused' : 'dispatch/resumed', teamId: input.teamId, from: result.from, to: result.to, ...(reason === undefined ? {} : { reason }), actor, at: Date.now() } as unknown as Record<string, unknown>)
       return { from: result.from, to: result.to }
+    }
+    /**
+     * Rotation limits in force, with where they came from.
+     *
+     * The profile row is the deployment default; the Team tab writes overrides into `team.json`, so
+     * the human can change a limit without an operator editing YAML — and one team can differ from
+     * the next in the same profile.
+     */
+    const readRotationSettings = async (): Promise<LiveTeamsRotation> => {
+      const state = await (await ensureStore()).readExisting()
+      const overrides = state === undefined ? {} : readTeamRotation(state)
+      return {
+        ...effectiveRotationConfig(rotation.config, overrides),
+        source: Object.keys(overrides).length === 0 ? 'profile' : 'team',
+        revision: state?.revision ?? 0,
+      }
+    }
+    const setRotationSettings = async (request: LiveTeamsRotationRequest & { actor: string }): Promise<LiveTeamsRotation> => {
+      const current = await ensureStore()
+      const result = await current.commit(input.teamId, {
+        expectedRevision: request.expectedRevision,
+        mutate: (state) => {
+          const next: TeamRotationSettings = { ...readTeamRotation(state) }
+          if (request.enabled !== undefined) next.enabled = request.enabled
+          if (request.maxContextTokens !== undefined) next.maxContextTokens = request.maxContextTokens
+          if (request.maxCompletedTasks !== undefined) next.maxCompletedTasks = request.maxCompletedTasks
+          state.rotation = next
+          return next
+        },
+      })
+      await audit({ kind: 'team/rotation', teamId: input.teamId, actor: request.actor, appliedRevision: result.state.revision, rotation: result.value, at: Date.now() } as unknown as Record<string, unknown>)
+      return await readRotationSettings()
     }
     const copyRoleOverride = async (id: string): Promise<{ id: string; path: string }> => {
       const registry = roleRegistry ?? await readRoles()
@@ -839,6 +876,8 @@ export function apply(ctx: HostContext, config: PluginConfig = {}): void {
       appendAudit: async (event: LiveTeamsAuditRecord): Promise<void> => { await audit(event) },
       readDispatch: readDispatchProjection,
       setDispatch: async (request) => await setDispatchMode(request.mode, request.actor, request.reason),
+      readRotation: readRotationSettings,
+      setRotation: setRotationSettings,
       readEvents: async (after?: number): Promise<{ events: readonly unknown[]; torn: string | null; nextOffset: number; truncated: boolean }> => await (await ensureStore()).readEvents(input.teamId, after),
       interrupt: (sessionId, reason) => bridge.interrupt(sessionId, reason),
     }

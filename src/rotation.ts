@@ -107,6 +107,8 @@ export interface RotationPorts {
   readonly teamId: string
   readonly workspaceId: string
   readonly config: RotationConfig
+  /** The effective config for this team: deployment row plus whatever the human set in the panel. */
+  readonly configOf?: ((team: TeamState) => RotationConfig) | undefined
   readonly readTeam: () => Promise<TeamState>
   readonly commit: (request: {
     expectedRevision: number
@@ -173,6 +175,29 @@ export function readRotationConfig(value: unknown): { config: RotationConfig; wa
     warnings.push('live-teams: rotation is enabled with both limits at 0; nothing will ever rotate')
   }
   return { config, warnings }
+}
+
+/**
+ * Apply a team's overrides on top of the deployment row.
+ *
+ * Only defined, well-formed keys are taken. The store already validated the block when it was
+ * written; this second check exists because `team.json` is a file on disk and a hand edit must not
+ * be able to switch a limit off by writing `null` or a string.
+ */
+export function effectiveRotationConfig(base: RotationConfig, override: unknown): RotationConfig {
+  const source = record(override)
+  // Strict on purpose: the store rejects a fractional limit when it is written, so a fraction here
+  // means the file was edited by hand. Flooring it would silently accept a number nobody chose.
+  const amount = (name: 'maxContextTokens' | 'maxCompletedTasks', fallback: number): number => {
+    const raw = source[name]
+    return typeof raw === 'number' && Number.isInteger(raw) && raw >= 0 ? raw : fallback
+  }
+  return {
+    ...base,
+    enabled: typeof source.enabled === 'boolean' ? source.enabled : base.enabled,
+    maxContextTokens: amount('maxContextTokens', base.maxContextTokens),
+    maxCompletedTasks: amount('maxCompletedTasks', base.maxCompletedTasks),
+  }
 }
 
 /**
@@ -309,10 +334,13 @@ export function createRotationService(ports: RotationPorts): RotationService {
   }
 
   async function pass(): Promise<readonly RotationOutcome[]> {
-    const config = ports.config
-    if (!config.enabled) return []
+    // The team is read even when the deployment row is off, because the panel can turn rotation on
+    // for one team without touching the profile. One extra state read per sweep is the price of a
+    // setting that belongs to the human rather than to the operator.
     let team: TeamState
     try { team = await ports.readTeam() } catch (error) { logger(`live-teams: rotation could not read the team: ${messageOf(error)}`); return [] }
+    const config = ports.configOf === undefined ? ports.config : ports.configOf(team)
+    if (!config.enabled) return []
     const outcomes: RotationOutcome[] = []
     for (const member of team.members) {
       if (outcomes.length >= config.maxRotationsPerPass) break

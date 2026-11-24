@@ -29,8 +29,8 @@ export {
   readJson,
   withProcessLock,
 } from './storage.js'
-export { TEAM_ROOT, TeamStore, createTeamStore, readMemberBySessionSync, readTeamStateSync } from './team-store.js'
-export type { TeamId, MemberId, SessionId, BindingGeneration, ContactTarget, ContactGrant, MemberRecord, TeamState, TeamCandidate, TeamAdoption } from './team-store.js'
+export { TEAM_ROOT, TeamStore, createTeamStore, readMemberBySessionSync, readTeamRotation, readTeamStateSync } from './team-store.js'
+export type { TeamId, MemberId, SessionId, BindingGeneration, ContactTarget, ContactGrant, MemberRecord, TeamState, TeamCandidate, TeamAdoption, TeamRotationSettings } from './team-store.js'
 export { TaskStore, createTaskStore, renderDocument, routeText, assignmentRouteText, deriveRouteContacts, routeAllowsContact, taskDocumentPath } from './task-store.js'
 export type { TaskKind, TaskStatus, TaskRoute, HumanContact, TeamTask, TaskAttempt, AttemptsState, TasksState, ClaimTaskRequest, ClaimTaskResult, AcknowledgeTaskRequest, CreateTaskRequest, CreateTaskResult, ListTasksOptions, ReadTaskResult, SubmissionArtifact, SubmissionSourceArtifact, SubmissionCheck, Submission, ReviewFinding, ReviewVerdict, ReviewRound, SubmissionsState, ReviewsState, SubmitTaskRequest, AcceptTaskRequest, AcceptTaskResult, ReviseTaskRequest, ReviseTaskResult, ReviewTaskRequest, ReviewTaskResult } from './task-store.js'
 export { contextTokensOf, createSessionBridge, toBridgeError } from './session-bridge.js'
@@ -42,7 +42,7 @@ export type { WorkspaceGuardOptions } from './binding.js'
 export type { SessionDescriptor, SessionController, SessionBridge, SessionBridgeDeps } from './session-bridge.js'
 export { SessionCommandQueue, createCommandQueue } from './command-queue.js'
 export type { CommandState, CommandRecord } from './command-queue.js'
-export { DEFAULT_ROTATION_CONFIG, createRotationService, decideRotation, readRotationConfig } from './rotation.js'
+export { DEFAULT_ROTATION_CONFIG, createRotationService, decideRotation, effectiveRotationConfig, readRotationConfig } from './rotation.js'
 export type {
   RotationConfig,
   RotationDecision,
@@ -72,6 +72,7 @@ export {
   LIVE_TEAMS_TEAM_NAME_ROUTE,
   LIVE_TEAMS_TEAM_CANDIDATES_ROUTE,
   LIVE_TEAMS_TEAM_ADOPT_ROUTE,
+  LIVE_TEAMS_TEAM_ROTATION_ROUTE,
   LIVE_TEAMS_MEMBERS_ROUTE,
   LIVE_TEAMS_CANDIDATES_ROUTE,
   LIVE_TEAMS_MEMBER_ROLE_ROUTE,
@@ -115,6 +116,8 @@ export type {
   LiveTeamsRemoveMemberResult,
   LiveTeamsMutation,
   LiveTeamsMutationResult,
+  LiveTeamsRotation,
+  LiveTeamsRotationRequest,
   LiveTeamsSessionTitleResult,
   LiveTeamsTitleResult,
   LiveTeamsRequestContext,

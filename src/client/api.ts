@@ -979,8 +979,55 @@ export async function setTeamDispatch(mode: 'auto' | 'paused', reason?: string, 
   }
 }
 
-export async function fetchTeamTask(taskId: string, session?: string, signal?: AbortSignal): Promise<TeamTaskDetail> {
-  const base = scoped('/api/live-teams/task', session)
+/**
+ * Rotation limits in force for this team.
+ *
+ * `source` says whether the panel's overrides or the deployment row decide, so the card can show
+ * "from profile" without pretending the numbers were chosen here.
+ */
+export type TeamRotation = {
+  enabled: boolean
+  maxContextTokens: number
+  maxCompletedTasks: number
+  cooldownMs: number
+  maxRotationsPerPass: number
+  source: 'team' | 'profile'
+  revision: number
+}
+
+function rotationPayload(value: unknown): TeamRotation {
+  const candidate = record(value)
+  if (typeof candidate.enabled !== 'boolean'
+    || !Number.isInteger(candidate.maxContextTokens) || !Number.isInteger(candidate.maxCompletedTasks)
+    || typeof candidate.cooldownMs !== 'number' || typeof candidate.maxRotationsPerPass !== 'number'
+    || (candidate.source !== 'team' && candidate.source !== 'profile')
+    || !Number.isInteger(candidate.revision)) {
+    throw new LiveTeamsApiError(500, 'invalid rotation response')
+  }
+  return candidate as TeamRotation
+}
+
+export async function fetchTeamRotation(session?: string, signal?: AbortSignal): Promise<TeamRotation> {
+  const init: RequestInit = { method: 'GET', headers: { accept: 'application/json' } }
+  if (signal !== undefined) init.signal = signal
+  try { return rotationPayload(await requestJson(scoped('/api/live-teams/team/rotation', session), init)) } catch (cause: unknown) {
+    if (cause instanceof LiveTeamsApiError) throw cause
+    throw new LiveTeamsApiError(500, 'invalid rotation response')
+  }
+}
+
+/** The human's own surface, like dispatch: the host commits under the revision it was shown. */
+export async function setTeamRotation(request: { enabled?: boolean; maxContextTokens?: number; maxCompletedTasks?: number; expectedRevision: number }, session?: string): Promise<TeamRotation> {
+  const body = withSession({ ...request }, session)
+  try {
+    return rotationPayload(await requestJson('/api/live-teams/team/rotation', { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, body: JSON.stringify(body) }))
+  } catch (cause: unknown) {
+    if (cause instanceof LiveTeamsApiError) throw cause
+    throw new LiveTeamsApiError(500, 'invalid rotation response')
+  }
+}
+
+export async function fetchTeamTask(taskId: string, session?: string, signal?: AbortSignal): Promise<TeamTaskDetail> {  const base = scoped('/api/live-teams/task', session)
   const separator = base.includes('?') ? '&' : '?'
   const init: RequestInit = { method: 'GET', headers: { accept: 'application/json' } }
   if (signal !== undefined) init.signal = signal

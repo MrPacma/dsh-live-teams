@@ -173,6 +173,13 @@ counter resets by construction.
 | `rotation.cooldownMs` | `DSH_LIVE_TEAMS_ROTATION_COOLDOWN_MS` | Quiet period after a refused rotation | `600000` |
 | `rotation.maxRotationsPerPass` | `DSH_LIVE_TEAMS_ROTATION_MAX_PER_PASS` | Members replaced per dispatch pass — each one creates a Session | `1` |
 
+Rotation can be configured in two places. The profile row above is the deployment default; the Team
+tab's **Automatic rotation** card writes per-team overrides into `team.json`, so the human can turn it
+on, change a limit, or turn it off again without editing YAML, and two teams in one profile can
+differ. The card shows which layer is in force (`from profile` or `set in this team`) and commits
+under the revision it was shown, exactly like the dispatch switch. A read or save failure is reported
+inside the card rather than replacing the team-wide notice.
+
 ```yaml
 # ~/.dsh/profiles/<profile>/cordis.patch.yml
 - id: live-teams
@@ -194,9 +201,9 @@ as a `member/rotated` journal event with the member ids, both Session ids, the r
 context and the completed-task count; a Session that was created but whose membership commit was
 refused is recorded as `session/orphaned` rather than silently dropped.
 
-Rotation is a configuration-level feature: it has no panel control, and enabling it changes the
-team's composition, which is why it ships off. To see what it would do without enabling it, read the
-journal after a pass or run the decision table in `src/rotation.test.ts`.
+Rotation ships off and enabling it changes the team's composition, which is why the human's switch
+exists rather than an always-on default. To see what it would do without enabling it, read the journal
+after a pass or run the decision table in `src/rotation.test.ts`.
 
 ## Compatibility
 

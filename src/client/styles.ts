@@ -1801,6 +1801,17 @@ export const css = `
 .dshLiveTeamsMemberSettings .dshLiveTeamsMemberMeta code { white-space: normal; overflow-wrap: anywhere; user-select: all; }
 .dshLiveTeamsMemberRemoval { display: flex; flex-direction: column; align-items: flex-start; gap: 9px; padding: 18px 0 2px; border-top: 1px solid var(--dsw-alias-border-l2); }
 .dshLiveTeamsMemberSettings .dshLiveTeamsMemberRemove { margin: 1px 0 0; padding: 6px 10px; font-size: 11px; }
+
+/* B43: rotation limits. Laid out like the lead control: a team-level setting above the roster. */
+.dshLiveTeamsRotation { display: flex; flex-direction: column; gap: 8px; padding: 14px 0; border-top: 1px solid var(--dsw-alias-border-l2); }
+.dshLiveTeamsRotationHead { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.dshLiveTeamsRotationHead strong { font-size: 12px; color: var(--dsw-alias-label-primary); }
+.dshLiveTeamsRotationState { color: var(--dsw-alias-label-tertiary); font-size: 11px; }
+.dshLiveTeamsRotationHint { margin: 0; color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 16px; }
+.dshLiveTeamsRotationControls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.dshLiveTeamsRotationControls .dshLiveTeamsModalField { flex: 0 1 150px; }
+.dshLiveTeamsRotationControls .dshLiveTeamsModalField input { width: 100%; }
+.dshLiveTeamsRotationToggle { padding: 6px 11px; font-size: 11px; min-height: 30px; }
 .dshLiveTeamsMemberTechnical > summary:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 2px; border-radius: 3px; }
 `
 

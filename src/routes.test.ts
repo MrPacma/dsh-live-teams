@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { permittedContacts } from './task-store.js'
-import { LIVE_TEAMS_JOURNAL_ROUTE, LIVE_TEAMS_MEMBER_GRANT_ROUTE, LIVE_TEAMS_MESSAGES_ROUTE, LIVE_TEAMS_MESSAGES_ACKNOWLEDGE_ROUTE, LIVE_TEAMS_ATTENTION_ROUTE, LIVE_TEAMS_CANDIDATES_ROUTE, LIVE_TEAMS_MEMBER_AVAILABILITY_ROUTE, LIVE_TEAMS_MEMBER_CREATE_SESSION_ROUTE, LIVE_TEAMS_MEMBER_INTERRUPT_ROUTE, LIVE_TEAMS_MEMBER_NAME_ROUTE, LIVE_TEAMS_MEMBER_REMOVE_ROUTE, LIVE_TEAMS_MEMBER_ROLE_ROUTE, LIVE_TEAMS_TASKS_ROUTE, LIVE_TEAMS_TASK_ROUTE, LIVE_TEAMS_TASK_ACCEPT_ROUTE, LIVE_TEAMS_TASK_NOTIFY_SUBMISSION_ROUTE, LIVE_TEAMS_TASK_NOTIFY_REVIEW_ROUTE, LIVE_TEAMS_TASK_REVISE_ROUTE, liveTeamsRequestAllowed, projectLiveTeamsCandidates, projectLiveTeamsSnapshot, registerLiveTeamsRoutes, type LiveTeamsCreateMemberRequest, type LiveTeamsCreateMemberResult, type LiveTeamsCreateSessionMemberRequest, type LiveTeamsCreateSessionMemberResult, type LiveTeamsMutation, type LiveTeamsMutationResult, type LiveTeamsResponse, type LiveTeamsWebServer, LIVE_TEAMS_TASK_CREATE_ROUTE, LIVE_TEAMS_TASK_UPDATE_ROUTE, LIVE_TEAMS_TASK_REVOKE_ROUTE } from './routes.js'
+import { LIVE_TEAMS_JOURNAL_ROUTE, LIVE_TEAMS_MEMBER_GRANT_ROUTE, LIVE_TEAMS_MESSAGES_ROUTE, LIVE_TEAMS_MESSAGES_ACKNOWLEDGE_ROUTE, LIVE_TEAMS_ATTENTION_ROUTE, LIVE_TEAMS_CANDIDATES_ROUTE, LIVE_TEAMS_MEMBER_AVAILABILITY_ROUTE, LIVE_TEAMS_MEMBER_CREATE_SESSION_ROUTE, LIVE_TEAMS_MEMBER_INTERRUPT_ROUTE, LIVE_TEAMS_MEMBER_NAME_ROUTE, LIVE_TEAMS_MEMBER_REMOVE_ROUTE, LIVE_TEAMS_MEMBER_ROLE_ROUTE, LIVE_TEAMS_TASKS_ROUTE, LIVE_TEAMS_TASK_ROUTE, LIVE_TEAMS_TASK_ACCEPT_ROUTE, LIVE_TEAMS_TASK_NOTIFY_SUBMISSION_ROUTE, LIVE_TEAMS_TASK_NOTIFY_REVIEW_ROUTE, LIVE_TEAMS_TASK_REVISE_ROUTE, LIVE_TEAMS_TEAM_ROTATION_ROUTE, liveTeamsRequestAllowed, projectLiveTeamsCandidates, projectLiveTeamsSnapshot, registerLiveTeamsRoutes, type LiveTeamsCreateMemberRequest, type LiveTeamsCreateMemberResult, type LiveTeamsCreateSessionMemberRequest, type LiveTeamsCreateSessionMemberResult, type LiveTeamsMutation, type LiveTeamsMutationResult, type LiveTeamsResponse, type LiveTeamsRotation, type LiveTeamsRotationRequest, type LiveTeamsWebServer, LIVE_TEAMS_TASK_CREATE_ROUTE, LIVE_TEAMS_TASK_UPDATE_ROUTE, LIVE_TEAMS_TASK_REVOKE_ROUTE } from './routes.js'
 import { ERROR_CODES, LiveTeamsError } from './errors.js'
 import { TeamStore, type TeamState } from './team-store.js'
 import { createTaskStore, type ReadTaskResult, type TaskStore, type TeamTask } from './task-store.js'
@@ -39,7 +39,7 @@ function response(): LiveTeamsResponse & { body: string | undefined; headers: Re
 
 type RouteHandler = (request: { method?: string; headers: Record<string, string>; socket: { remoteAddress?: string }; url?: string; body?: string }, response: LiveTeamsResponse) => unknown
 
-function routeOf(readState: () => Promise<unknown>, agents: { get: (id: string) => unknown } = { get: () => undefined }, extra: { applyMutation?: (request: LiveTeamsMutation) => Promise<LiveTeamsMutationResult>; listCandidates?: () => Promise<readonly import('./session-bridge.js').SessionDescriptor[]>; createMember?: (request: LiveTeamsCreateMemberRequest) => Promise<LiveTeamsCreateMemberResult>; createSessionMember?: (request: LiveTeamsCreateSessionMemberRequest) => Promise<LiveTeamsCreateSessionMemberResult>; removeMember?: (request: import('./routes.js').LiveTeamsRemoveMemberRequest) => Promise<import('./routes.js').LiveTeamsRemoveMemberResult>; interrupt?: (sessionId: string, reason: string) => Promise<{ accepted: true }>; appendAudit?: (event: unknown) => Promise<void>; readEvents?: () => Promise<{ events: readonly unknown[]; torn: string | null }>; setContactGrant?: (from: string, to: string, action: 'add' | 'remove', actor: string) => Promise<{ grants: { from: string; to: string; grantedBy: string; at: number }[] }>; mailbox?: import('./mailbox.js').MailboxService; taskStore?: TaskStore } = {}) {
+function routeOf(readState: () => Promise<unknown>, agents: { get: (id: string) => unknown } = { get: () => undefined }, extra: { applyMutation?: (request: LiveTeamsMutation) => Promise<LiveTeamsMutationResult>; listCandidates?: () => Promise<readonly import('./session-bridge.js').SessionDescriptor[]>; createMember?: (request: LiveTeamsCreateMemberRequest) => Promise<LiveTeamsCreateMemberResult>; createSessionMember?: (request: LiveTeamsCreateSessionMemberRequest) => Promise<LiveTeamsCreateSessionMemberResult>; removeMember?: (request: import('./routes.js').LiveTeamsRemoveMemberRequest) => Promise<import('./routes.js').LiveTeamsRemoveMemberResult>; interrupt?: (sessionId: string, reason: string) => Promise<{ accepted: true }>; appendAudit?: (event: unknown) => Promise<void>; readEvents?: () => Promise<{ events: readonly unknown[]; torn: string | null }>; setContactGrant?: (from: string, to: string, action: 'add' | 'remove', actor: string) => Promise<{ grants: { from: string; to: string; grantedBy: string; at: number }[] }>; mailbox?: import('./mailbox.js').MailboxService; taskStore?: TaskStore; readRotation?: () => Promise<LiveTeamsRotation | undefined>; setRotation?: (request: LiveTeamsRotationRequest & { actor: string }) => Promise<LiveTeamsRotation> } = {}) {
   const handlers = new Map<string, RouteHandler>()
   const unregister = vi.fn()
   const server: LiveTeamsWebServer = {
@@ -49,7 +49,7 @@ function routeOf(readState: () => Promise<unknown>, agents: { get: (id: string) 
   const dispose = registerLiveTeamsRoutes({ webServer: server }, { teamId: 'team-1', workspacePath, readState, agents, ...extra })
   const handler = handlers.get('/api/live-teams/members')
   if (handler === undefined) throw new Error('handler was not registered')
-  return { notifyReview: handlers.get(LIVE_TEAMS_TASK_NOTIFY_REVIEW_ROUTE), notifySubmission: handlers.get(LIVE_TEAMS_TASK_NOTIFY_SUBMISSION_ROUTE), taskCreate: handlers.get(LIVE_TEAMS_TASK_CREATE_ROUTE), taskUpdate: handlers.get(LIVE_TEAMS_TASK_UPDATE_ROUTE), taskRevoke: handlers.get(LIVE_TEAMS_TASK_REVOKE_ROUTE), handler, journal: handlers.get(LIVE_TEAMS_JOURNAL_ROUTE), grant: handlers.get(LIVE_TEAMS_MEMBER_GRANT_ROUTE), messages: handlers.get(LIVE_TEAMS_MESSAGES_ROUTE), attention: handlers.get(LIVE_TEAMS_ATTENTION_ROUTE), acknowledge: handlers.get(LIVE_TEAMS_MESSAGES_ACKNOWLEDGE_ROUTE), candidates: handlers.get(LIVE_TEAMS_CANDIDATES_ROUTE), createSession: handlers.get(LIVE_TEAMS_MEMBER_CREATE_SESSION_ROUTE), interrupt: handlers.get(LIVE_TEAMS_MEMBER_INTERRUPT_ROUTE), role: handlers.get(LIVE_TEAMS_MEMBER_ROLE_ROUTE), availability: handlers.get(LIVE_TEAMS_MEMBER_AVAILABILITY_ROUTE), name: handlers.get(LIVE_TEAMS_MEMBER_NAME_ROUTE), remove: handlers.get(LIVE_TEAMS_MEMBER_REMOVE_ROUTE), tasks: handlers.get(LIVE_TEAMS_TASKS_ROUTE), task: handlers.get(LIVE_TEAMS_TASK_ROUTE), accept: handlers.get(LIVE_TEAMS_TASK_ACCEPT_ROUTE), revise: handlers.get(LIVE_TEAMS_TASK_REVISE_ROUTE), unregister: dispose }
+  return { notifyReview: handlers.get(LIVE_TEAMS_TASK_NOTIFY_REVIEW_ROUTE), notifySubmission: handlers.get(LIVE_TEAMS_TASK_NOTIFY_SUBMISSION_ROUTE), taskCreate: handlers.get(LIVE_TEAMS_TASK_CREATE_ROUTE), taskUpdate: handlers.get(LIVE_TEAMS_TASK_UPDATE_ROUTE), taskRevoke: handlers.get(LIVE_TEAMS_TASK_REVOKE_ROUTE), handler, journal: handlers.get(LIVE_TEAMS_JOURNAL_ROUTE), grant: handlers.get(LIVE_TEAMS_MEMBER_GRANT_ROUTE), messages: handlers.get(LIVE_TEAMS_MESSAGES_ROUTE), attention: handlers.get(LIVE_TEAMS_ATTENTION_ROUTE), acknowledge: handlers.get(LIVE_TEAMS_MESSAGES_ACKNOWLEDGE_ROUTE), candidates: handlers.get(LIVE_TEAMS_CANDIDATES_ROUTE), createSession: handlers.get(LIVE_TEAMS_MEMBER_CREATE_SESSION_ROUTE), interrupt: handlers.get(LIVE_TEAMS_MEMBER_INTERRUPT_ROUTE), role: handlers.get(LIVE_TEAMS_MEMBER_ROLE_ROUTE), availability: handlers.get(LIVE_TEAMS_MEMBER_AVAILABILITY_ROUTE), name: handlers.get(LIVE_TEAMS_MEMBER_NAME_ROUTE), remove: handlers.get(LIVE_TEAMS_MEMBER_REMOVE_ROUTE), tasks: handlers.get(LIVE_TEAMS_TASKS_ROUTE), task: handlers.get(LIVE_TEAMS_TASK_ROUTE), accept: handlers.get(LIVE_TEAMS_TASK_ACCEPT_ROUTE), revise: handlers.get(LIVE_TEAMS_TASK_REVISE_ROUTE), rotation: handlers.get(LIVE_TEAMS_TEAM_ROTATION_ROUTE), unregister: dispose }
 }
 
 // The panel's own request: same-origin evidence, so the mutation is attributed to the human. A
@@ -1041,5 +1041,64 @@ describe('human contact grant route', () => {
     }
     expect(audit).toEqual([])
     expect(state.contactGrants).toBeUndefined()
+  })
+})
+
+/**
+ * The panel's rotation card talks to this route. It is the human's own surface, so it is fenced like
+ * dispatch: same-origin evidence in, an expected revision out, and a request that changes nothing is
+ * refused rather than committed.
+ */
+describe('team rotation route', () => {
+  const settings: LiveTeamsRotation = { enabled: true, maxContextTokens: 150_000, maxCompletedTasks: 5, cooldownMs: 600_000, maxRotationsPerPass: 1, source: 'profile', revision: 4 }
+
+  it('reports the limits in force and refuses a foreign origin', async () => {
+    const readRotation = vi.fn(async () => settings)
+    const routes = routeOf(async () => baseState, undefined, { readRotation })
+    const reply = response()
+    await routes.rotation!(authorized, reply)
+    expect(reply.statusCode).toBe(200)
+    expect(JSON.parse(reply.body!)).toEqual(settings)
+
+    const foreign = response()
+    await routes.rotation!({ ...authorized, headers: { host: '127.0.0.1:43120', origin: 'http://foreign.test', 'sec-fetch-site': 'cross-site' } }, foreign)
+    expect(foreign.statusCode).toBe(403)
+  })
+
+  it('commits exactly the fields the human changed, as the human', async () => {
+    const updated: LiveTeamsRotation = { ...settings, enabled: false, maxContextTokens: 40_000, source: 'team', revision: 5 }
+    const setRotation = vi.fn(async () => updated)
+    const routes = routeOf(async () => baseState, undefined, { setRotation })
+    const reply = response()
+    await routes.rotation!({ method: 'POST', headers: mutationHeaders, socket: { remoteAddress: '127.0.0.1' }, body: JSON.stringify({ enabled: false, maxContextTokens: 40_000, expectedRevision: 4, sessionId: 's-live' }) }, reply)
+    expect(reply.statusCode).toBe(200)
+    expect(JSON.parse(reply.body!)).toEqual(updated)
+    expect(setRotation).toHaveBeenCalledExactlyOnceWith({ enabled: false, maxContextTokens: 40_000, expectedRevision: 4, actor: 'human:desktop' })
+  })
+
+  it('refuses a malformed limit, a fractional limit, a missing revision and an empty patch', async () => {
+    const setRotation = vi.fn(async () => settings)
+    const routes = routeOf(async () => baseState, undefined, { setRotation })
+    for (const body of [
+      { enabled: 'yes', expectedRevision: 4 },
+      { maxContextTokens: -1, expectedRevision: 4 },
+      { maxContextTokens: 1.5, expectedRevision: 4 },
+      { maxCompletedTasks: 10_000_000_000, expectedRevision: 4 },
+      { enabled: true },
+      { expectedRevision: 4 },
+      { enabled: true, expectedRevision: 'now' },
+    ]) {
+      const reply = response()
+      await routes.rotation!({ method: 'POST', headers: mutationHeaders, socket: { remoteAddress: '127.0.0.1' }, body: JSON.stringify(body) }, reply)
+      expect(reply.statusCode).toBe(400)
+    }
+    expect(setRotation).not.toHaveBeenCalled()
+  })
+
+  it('reports an unavailable host instead of inventing limits', async () => {
+    const routes = routeOf(async () => baseState)
+    const reply = response()
+    await routes.rotation!(authorized, reply)
+    expect(reply.statusCode).toBe(503)
   })
 })
