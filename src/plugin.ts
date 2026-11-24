@@ -8,7 +8,7 @@ import { ERROR_CODES, LiveTeamsError } from './errors.js'
 import { checkCompatibility } from './compatibility.js'
 import { resolveLeadMemberId, TeamStore, readDispatchSwitch, readMemberBySessionSync, readTeamRotation, readTeamStateSync, type ContactTarget, type MemberRecord, type TeamRotationSettings, type TeamState } from './team-store.js'
 import { readRoleRegistry, readRoleRegistrySync, type RoleRegistry } from './roles.js'
-import { createSessionBridge, type SessionBridge, type SessionDescriptor, type SessionQuerySource } from './session-bridge.js'
+import { createSessionBridge, type ModelSelection, type SessionBridge, type SessionDescriptor, type SessionQuerySource } from './session-bridge.js'
 import { createCommandQueue, type CommandRecord, type SessionCommandQueue } from './command-queue.js'
 import { createMailbox, type MailboxRecipient, type MailboxService } from './mailbox.js'
 import { createReviewReturnPorts, reviewReturnLeadDeliveryAllowed } from './review-return-ports.js'
@@ -545,16 +545,21 @@ export function apply(ctx: HostContext, config: PluginConfig = {}): void {
       const sessionId = member.sessionId
       let sessionStatus: 'running' | 'idle' | 'unknown' = 'unknown'
       let agentPreset: string | undefined
+      let modelSelection: ModelSelection | undefined
       if (sessionId !== undefined) {
         const agent = ctx.agents?.get?.(sessionId) as { status?: unknown } | undefined
         sessionStatus = agent === undefined ? 'unknown' : agent.status === 'running' ? 'running' : agent.status === 'idle' ? 'idle' : 'unknown'
         try { agentPreset = (await bridge.inspect(sessionId))?.agentPreset } catch { agentPreset = undefined }
+        // The Session's own model choice: `session.create` accepts none, so it has to be read here
+        // and re-recorded on the replacement, or the member silently drops to the deployment default.
+        modelSelection = await bridge.modelSelection(sessionId)
       }
-      return { completedTasks, openTasks, activeAttempt, sessionStatus, undeliveredMessages, agentPreset }
+      return { completedTasks, openTasks, activeAttempt, sessionStatus, undeliveredMessages, agentPreset, modelSelection }
     }
     // The binding is created after the service, and the service needs the binding to register the
     // replacement Session in the session→binding map before that Session's first turn.
     let bindingRef: Binding | undefined
+    let warnedModelSelection = false
     const rotationService = createRotationService({
       teamId: input.teamId,
       workspaceId: input.id,
@@ -574,6 +579,24 @@ export function apply(ctx: HostContext, config: PluginConfig = {}): void {
         })
       },
       newSessionId: () => `session-${randomUUID()}`,
+      /**
+       * Record the old Session's model on the replacement through `agent.model.select`, which is the
+       * event DSH's own composer writes. `sessionController.selectModel` would do the same *and*
+       * save the value as the deployment-wide default, so one member's model would re-model every
+       * other Session in the profile — the exact side effect this plugin refuses to have.
+       */
+      applyModelSelection: async (sessionId, selection) => {
+        const agent = ctx.agents?.get?.(sessionId) as { model?: { select?: (value: ModelSelection) => unknown } } | undefined
+        if (agent?.model?.select === undefined) {
+          if (!warnedModelSelection) {
+            warnedModelSelection = true
+            ctx.logger?.warn?.('live-teams: rotation cannot carry a Session model on this host (no agent.model.select); rotated members keep the deployment default')
+          }
+          return false
+        }
+        agent.model.select(selection)
+        return true
+      },
       audit: async (event) => { await audit(event) },
       onRotated: (outcome: RotationOutcome) => {
         if (bindingRef === undefined) return

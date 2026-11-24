@@ -21,6 +21,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { ERROR_CODES, LiveTeamsError } from './errors.js'
+import type { ModelSelection } from './session-bridge.js'
 import type { MemberRecord, TeamState } from './team-store.js'
 
 export interface RotationConfig {
@@ -85,6 +86,12 @@ export interface RotationFacts {
   readonly undeliveredMessages: number
   /** The old Session's agent preset, copied so the replacement works the same way. */
   readonly agentPreset?: string | undefined
+  /**
+   * The old Session's model choice. A Session carries its own model, and `session.create` accepts
+   * none: without this a rotated member silently falls back to the deployment default, which is the
+   * one visible way rotation could change the quality of the work.
+   */
+  readonly modelSelection?: ModelSelection | undefined
 }
 
 export interface RotationOutcome {
@@ -96,6 +103,8 @@ export interface RotationOutcome {
   readonly detail: string
   readonly completedTasks: number
   readonly contextTokens?: number | undefined
+  /** The model carried onto the replacement Session, when the old one named one. */
+  readonly model?: ModelSelection | undefined
 }
 
 export interface RotationCommit {
@@ -117,6 +126,15 @@ export interface RotationPorts {
   readonly factsOf: (member: MemberRecord) => Promise<RotationFacts>
   readonly measureContextTokens: (sessionId: string) => Promise<number | undefined>
   readonly createSession: (request: { sessionId: string; workspaceId: string; agentPreset?: string }) => Promise<void>
+  /**
+   * Record a model selection on the replacement Session.
+   *
+   * Implemented as the same session event DSH's own composer writes, and deliberately *not* through
+   * `sessionController.selectModel`: that call also persists the selection as the deployment-wide
+   * default model, so copying one member's model would silently re-model every other Session in the
+   * profile. Returns false when the host exposes no such seam.
+   */
+  readonly applyModelSelection?: ((sessionId: string, selection: ModelSelection) => Promise<boolean>) | undefined
   readonly newSessionId: () => string
   readonly audit: (event: Record<string, unknown>) => Promise<void>
   /** Wire the new Session into the host's session→binding map before its first turn. */
@@ -252,6 +270,17 @@ export function createRotationService(ports: RotationPorts): RotationService {
       workspaceId: ports.workspaceId,
       ...(facts.agentPreset === undefined ? {} : { agentPreset: facts.agentPreset }),
     })
+    // Before the commit, so a replacement Session is never left on the wrong model even for the
+    // window between creation and membership. A host without the seam keeps the default and says so
+    // in the journal instead of pretending the choice was carried.
+    let model: ModelSelection | undefined
+    if (facts.modelSelection !== undefined && ports.applyModelSelection !== undefined) {
+      const applied = await ports.applyModelSelection(sessionId, facts.modelSelection).catch((error: unknown) => {
+        logger(`live-teams: rotation could not carry the model onto ${sessionId}: ${messageOf(error)}`)
+        return false
+      })
+      if (applied) model = facts.modelSelection
+    }
     const memberId = `m-${randomUUID()}`
     let committed: { state: TeamState; value: RotationCommit }
     try {
@@ -309,6 +338,7 @@ export function createRotationService(ports: RotationPorts): RotationService {
       detail: decision.detail,
       completedTasks: facts.completedTasks,
       ...(contextTokens === undefined ? {} : { contextTokens }),
+      ...(model === undefined ? {} : { model }),
     }
     await ports.audit({
       kind: 'member/rotated',
@@ -323,6 +353,9 @@ export function createRotationService(ports: RotationPorts): RotationService {
       detail: decision.detail,
       completedTasks: facts.completedTasks,
       ...(contextTokens === undefined ? {} : { contextTokens }),
+      // The model is in the journal because "the lead got slower after a rotation" is otherwise
+      // invisible: the member name and role look identical on both sides of the event.
+      ...(model === undefined ? {} : { model }),
       at: now,
       actor: 'rotation',
     })

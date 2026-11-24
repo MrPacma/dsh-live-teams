@@ -201,6 +201,15 @@ as a `member/rotated` journal event with the member ids, both Session ids, the r
 context and the completed-task count; a Session that was created but whose membership commit was
 refused is recorded as `session/orphaned` rather than silently dropped.
 
+The replacement Session inherits the member's **model choice** as well. `session.create` accepts no
+selection at all, so the pass reads the old Session's `model/selection` (or its last request header,
+when no switch is pending) and records the same choice on the new Session. It deliberately does not go
+through `sessionController.selectModel`: that call also persists the value as the deployment-wide
+default model, so copying one member's model would silently re-model every other Session in the
+profile. The choice that was carried is in the `member/rotated` journal event — "the lead got slower
+after a rotation" is otherwise invisible, because the member name and role look identical on both
+sides.
+
 Rotation ships off and enabling it changes the team's composition, which is why the human's switch
 exists rather than an always-on default. To see what it would do without enabling it, read the journal
 after a pass or run the decision table in `src/rotation.test.ts`.

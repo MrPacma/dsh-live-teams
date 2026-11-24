@@ -11,7 +11,7 @@ import {
   type RotationPorts,
 } from './rotation.js'
 import { readTeamRotation } from './team-store.js'
-import { contextTokensOf } from './session-bridge.js'
+import { contextTokensOf, modelSelectionOf, type ModelSelection } from './session-bridge.js'
 import type { MemberRecord, TeamState } from './team-store.js'
 
 const config = (patch: Partial<RotationConfig> = {}): RotationConfig => ({ ...DEFAULT_ROTATION_CONFIG, enabled: true, ...patch })
@@ -134,6 +134,39 @@ describe('readTeamRotation', () => {
   })
 })
 
+/**
+ * A Session carries its own model, and `session.create` accepts none. Rotation has to read the old
+ * choice out of the log and record it on the replacement, or a member silently drops to the
+ * deployment default — slower or weaker work that looks like the same member.
+ */
+describe('modelSelectionOf', () => {
+  it('reads the pending selection', () => {
+    const events = [
+      { type: 'request/header', data: { header: { config: { provider: 'deepseek', model: 'v4.1-flash', reasoningEffort: 'high' } } } },
+      { type: 'model/selection', data: { provider: 'chatgpt', model: 'sol-6.2', reasoningEffort: 'medium' } },
+    ]
+    expect(modelSelectionOf(events)).toEqual({ provider: 'chatgpt', model: 'sol-6.2', reasoningEffort: 'medium' })
+  })
+
+  it('falls back to the last request header', () => {
+    const events = [
+      { type: 'request/header', data: { header: { config: { provider: 'deepseek', model: 'v4.1-flash', reasoningEffort: 'high' } } } },
+      { type: 'tool/result', data: {} },
+    ]
+    expect(modelSelectionOf(events)).toEqual({ provider: 'deepseek', model: 'v4.1-flash', reasoningEffort: 'high' })
+  })
+
+  it('does not freeze an effort the adapter defaulted', () => {
+    const events = [{ type: 'request/header', data: { header: { config: { provider: 'p', model: 'm', reasoningEffort: 'high' }, adapterDefaults: { reasoningEffort: true } } } }]
+    expect(modelSelectionOf(events)).toEqual({ provider: 'p', model: 'm' })
+  })
+
+  it('reports nothing when the Session never named a model', () => {
+    expect(modelSelectionOf([])).toBeUndefined()
+    expect(modelSelectionOf([{ type: 'user/message' }, { type: 'request/header', data: { header: { config: {} } } }])).toBeUndefined()
+  })
+})
+
 describe('contextTokensOf', () => {  it('reads the newest prompt size, not a delta', () => {
     const events = [
       { type: 'assistant/message', seq: 1, data: { usage: { inputTokens: 100, cacheReadTokens: 900, outputTokens: 50, totalTokens: 1050 } } },
@@ -156,6 +189,7 @@ type Harness = {
   outcomes: RotationOutcome[]
   audits: Record<string, unknown>[]
   sessions: string[]
+  applied: { sessionId: string; selection: ModelSelection }[]
   state: TeamState
   notices: string[]
 }
@@ -168,7 +202,7 @@ function harness(input: {
   createSession?: (request: { sessionId: string; workspaceId: string; agentPreset?: string }) => Promise<void>
 } = {}): Harness {
   const current = team(input.members ?? [member()])
-  const h: Harness = { outcomes: [], audits: [], sessions: [], state: current, notices: [], ports: {} as RotationPorts }
+  const h: Harness = { outcomes: [], audits: [], sessions: [], state: current, notices: [], applied: [], ports: {} as RotationPorts }
   let counter = 0
   const contextInput = input.context
   const measure = typeof contextInput === 'function'
@@ -189,6 +223,7 @@ function harness(input: {
     measureContextTokens: async (sessionId) => measure(sessionId),
     createSession: input.createSession ?? (async (request) => { h.sessions.push(request.sessionId) }),
     newSessionId: () => `session-new-${String(++counter)}`,
+    applyModelSelection: async (sessionId, selection) => { h.applied.push({ sessionId, selection }); return true },
     audit: async (event) => { h.audits.push(event) },
     onRotated: (outcome) => { h.outcomes.push(outcome); h.notices.push(outcome.sessionId) },
     titleSession: async (sessionId) => { h.notices.push(`title:${sessionId}`) },
@@ -303,6 +338,34 @@ describe('rotation service', () => {
     h.ports = { ...h.ports, config: base, configOf: (team) => effectiveRotationConfig(base, team.rotation) }
     h.state = { ...h.state, rotation: { enabled: true, maxContextTokens: 100_000 } }
     expect(await createRotationService(h.ports).check()).toHaveLength(1)
+  })
+
+  it('carries the Session model onto the replacement and records it in the journal', async () => {
+    const selection = { provider: 'chatgpt', model: 'sol-6.2', reasoningEffort: 'medium' }
+    const h = harness({ context: 200_000, facts: async () => facts({ modelSelection: selection }) })
+    const [outcome] = await createRotationService(h.ports).check()
+    expect(h.applied).toEqual([{ sessionId: 'session-new-1', selection }])
+    expect(outcome?.model).toEqual(selection)
+    expect(h.audits.find((event) => event.kind === 'member/rotated')?.model).toEqual(selection)
+  })
+
+  it('keeps the deployment default when the host cannot record a model, and still rotates', async () => {
+    const selection = { provider: 'chatgpt', model: 'sol-6.2' }
+    const h = harness({ context: 200_000, facts: async () => facts({ modelSelection: selection }) })
+    const ports: RotationPorts = { ...h.ports, applyModelSelection: undefined }
+    const outcomes = await createRotationService(ports).check()
+    expect(outcomes).toHaveLength(1)
+    expect(outcomes[0]?.model).toBeUndefined()
+    expect(h.audits.find((event) => event.kind === 'member/rotated')?.model).toBeUndefined()
+  })
+
+  it('rotates when recording the model fails, without claiming it was carried', async () => {
+    const selection = { provider: 'chatgpt', model: 'sol-6.2' }
+    const h = harness({ context: 200_000, facts: async () => facts({ modelSelection: selection }) })
+    const ports: RotationPorts = { ...h.ports, applyModelSelection: async () => { throw new Error('agent went away') } }
+    const [outcome] = await createRotationService(ports).check()
+    expect(outcome?.model).toBeUndefined()
+    expect(h.sessions).toHaveLength(1)
   })
 
   it('shares one pass between concurrent callers', async () => {
