@@ -17,7 +17,7 @@ import { assignmentDeliveryAllowed } from './assignment-guard.js'
 import { createAssignmentRecovery } from './assignment-recovery.js'
 import { createSubmissionNoticePort, submissionNoticeDeliveryAllowed } from './submission-notice-ports.js'
 import { createLifecycleNoticePort, lifecycleNoticeDeliveryAllowed } from './lifecycle-notice.js'
-import { createDispatcher, projectDispatch, type CodingDispatch, type Dispatcher, type ReconcileResult } from './dispatch.js'
+import { createDispatcher, projectDispatch, sessionStatusFromAgent, type CodingDispatch, type Dispatcher, type ReconcileResult } from './dispatch.js'
 import { createMembershipContextProvider, type MembershipContextBinding, type MembershipContextProvider } from './context-provider.js'
 import { createRotationService, effectiveRotationConfig, pendingMailFor, readRotationConfig, type RotationFacts, type RotationOutcome } from './rotation.js'
 import { registerMemberToolsIfAvailable } from './member-tools.js'
@@ -552,8 +552,7 @@ export function apply(ctx: HostContext, config: PluginConfig = {}): void {
       let modelSelection: ModelSelection | undefined
       let sessionTitle: string | undefined
       if (sessionId !== undefined) {
-        const agent = ctx.agents?.get?.(sessionId) as { status?: unknown } | undefined
-        sessionStatus = agent === undefined ? 'unknown' : agent.status === 'running' ? 'running' : agent.status === 'idle' ? 'idle' : 'unknown'
+        sessionStatus = sessionStatusFromAgent(ctx.agents?.get?.(sessionId))
         // One inspection answers two questions: which preset the replacement should use, and which
         // name the retired Session should keep.
         try {
@@ -651,6 +650,13 @@ export function apply(ctx: HostContext, config: PluginConfig = {}): void {
       appendAudit: async (event) => { await audit(event as unknown as Record<string, unknown>) },
       codingDispatch,
       humanActivity,
+      /**
+       * The stalled detector needs this to tell "acknowledged, then its Session went idle with nothing
+       * submitted" from "still working". Without it the reconciler skips every task past `claimed`,
+       * so a member that acknowledged and then stopped was never shown as silent — which is exactly
+       * how a physical-acceptance task sat `in_progress` for an hour with no signal to anyone.
+       */
+      sessionStatus: async (sessionId) => sessionStatusFromAgent(ctx.agents?.get?.(sessionId)),
       recoverReviewReturns: async () => taskStore.recoverReviewReturns(),
       recoverSubmissionNotifications: async () => taskStore.recoverSubmissionNotifications(),
       recoverLifecycleNotifications: async () => taskStore.recoverLifecycleNotifications(),

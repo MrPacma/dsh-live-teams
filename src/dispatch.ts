@@ -332,6 +332,20 @@ export type Dispatcher = {
   stop: () => Promise<void>
 }
 
+/**
+ * Read a live Agent's status the way the reconciler needs it.
+ *
+ * `unknown` is a real answer, not a fallback to `idle`: a Session the host cannot observe must not be
+ * reported as finished work, because "idle and nothing submitted" is exactly the silence the stalled
+ * detector marks. One function for both callers (the stalled detector and the rotation gate), so the
+ * two cannot drift into disagreeing about whether a member is working.
+ */
+export function sessionStatusFromAgent(agent: unknown): 'running' | 'idle' | 'unknown' {
+  if (agent === undefined || agent === null) return 'unknown'
+  const status = (agent as { status?: unknown }).status
+  return status === 'running' ? 'running' : status === 'idle' ? 'idle' : 'unknown'
+}
+
 const TRIGGER_KINDS = /^(task|attempt|submission|review|member|team|delivery)\//
 
 export function createDispatcher(ports: DispatcherPorts): Dispatcher {
