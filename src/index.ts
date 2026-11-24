@@ -44,8 +44,9 @@ export type { WorkspaceGuardOptions } from './binding.js'
 export type { SessionDescriptor, SessionController, SessionBridge, SessionBridgeDeps, ModelSelection } from './session-bridge.js'
 export { SessionCommandQueue, createCommandQueue } from './command-queue.js'
 export type { CommandState, CommandRecord } from './command-queue.js'
-export { DEFAULT_ROTATION_CONFIG, createRotationService, decideRotation, effectiveRotationConfig, readRotationConfig } from './rotation.js'
+export { DEFAULT_ROTATION_CONFIG, createRotationService, decideRotation, effectiveRotationConfig, pendingMailFor, readRotationConfig } from './rotation.js'
 export type {
+  MailRow,
   RotationConfig,
   RotationDecision,
   RotationDecisionInput,

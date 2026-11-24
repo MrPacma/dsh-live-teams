@@ -19,7 +19,7 @@ import { createSubmissionNoticePort, submissionNoticeDeliveryAllowed } from './s
 import { createLifecycleNoticePort, lifecycleNoticeDeliveryAllowed } from './lifecycle-notice.js'
 import { createDispatcher, projectDispatch, type CodingDispatch, type Dispatcher, type ReconcileResult } from './dispatch.js'
 import { createMembershipContextProvider, type MembershipContextBinding, type MembershipContextProvider } from './context-provider.js'
-import { createRotationService, effectiveRotationConfig, readRotationConfig, type RotationFacts, type RotationOutcome } from './rotation.js'
+import { createRotationService, effectiveRotationConfig, pendingMailFor, readRotationConfig, type RotationFacts, type RotationOutcome } from './rotation.js'
 import { registerMemberToolsIfAvailable } from './member-tools.js'
 import { createTaskStore, permittedContacts, type TaskStore } from './task-store.js'
 import { gitChangedPaths, gitCommittedPaths, workspaceMode } from './changed-paths.js'
@@ -541,7 +541,11 @@ export function apply(ctx: HostContext, config: PluginConfig = {}): void {
       const attempts = (await taskStore.readAttempts()).attempts
       const activeAttempt = attempts.some((attempt) => attempt.memberId === memberId && (attempt.status === 'active' || attempt.status === 'revoking'))
       const deliveries = await mailbox.listDeliveries()
-      const undeliveredMessages = deliveries.filter((delivery) => delivery.recipient === memberId && delivery.state === 'stored').length
+      // Not every stored delivery blocks: a comment never wakes a Session and waits for the member's
+      // own next turn, which can be days. Only mail the host is about to push may block a rotation.
+      const mail = pendingMailFor(deliveries, memberId)
+      const undeliveredMessages = mail.pushPending
+      const parkedMessages = mail.parked
       const sessionId = member.sessionId
       let sessionStatus: 'running' | 'idle' | 'unknown' = 'unknown'
       let agentPreset: string | undefined
@@ -561,7 +565,7 @@ export function apply(ctx: HostContext, config: PluginConfig = {}): void {
         // and re-recorded on the replacement, or the member silently drops to the deployment default.
         modelSelection = await bridge.modelSelection(sessionId)
       }
-      return { completedTasks, openTasks, activeAttempt, sessionStatus, undeliveredMessages, agentPreset, modelSelection, sessionTitle }
+      return { completedTasks, openTasks, activeAttempt, sessionStatus, undeliveredMessages, parkedMessages, agentPreset, modelSelection, sessionTitle }
     }
     // The binding is created after the service, and the service needs the binding to register the
     // replacement Session in the session→binding map before that Session's first turn.

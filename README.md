@@ -194,12 +194,17 @@ inside the card rather than replacing the team-wide notice.
 
 What a pass will never do, because the task contract, its review route and the attempt all name the
 member id: rotate a member with an open task or an open review route, with an active attempt, while
-its Session is running, while it has stored-but-undelivered mail, or while it is `paused`. Rotation
-runs inside the dispatcher pass (not on its own timer) and only while the team is not paused, so the
-single-flight latch, the shutdown path and the human's pause all cover it. Each rotation is recorded
-as a `member/rotated` journal event with the member ids, both Session ids, the reason, the measured
-context and the completed-task count; a Session that was created but whose membership commit was
-refused is recorded as `session/orphaned` rather than silently dropped.
+its Session is running, while it has mail the host is about to push, or while it is `paused`. Mail
+counts by wake policy, not by state alone: a `comment` carries `wakePolicy: 'never'`, waits for the
+member's own next turn (days, on a busy team) and therefore cannot block — the first version counted
+every `stored` delivery and froze a reviewer with 727k tokens of context on two comments from
+yesterday. Parked comments are counted in the `member/rotated` event as `parkedMessages`, and the
+mailbox records them as undelivered for the retired id on the next pass. Rotation runs inside the
+dispatcher pass (not on its own timer) and only while the team is not paused, so the single-flight
+latch, the shutdown path and the human's pause all cover it. Each rotation is recorded as a
+`member/rotated` journal event with the member ids, both Session ids, the reason, the measured context,
+the completed-task count, the carried model and the retired title; a Session that was created but whose
+membership commit was refused is recorded as `session/orphaned` rather than silently dropped.
 
 The replacement Session inherits the member's **model choice** as well. `session.create` accepts no
 selection at all, so the pass reads the old Session's `model/selection` (or its last request header,

@@ -4,6 +4,7 @@ import {
   createRotationService,
   decideRotation,
   effectiveRotationConfig,
+  pendingMailFor,
   readRotationConfig,
   type RotationConfig,
   type RotationFacts,
@@ -30,7 +31,7 @@ const unboundMember = (): MemberRecord => {
 }
 
 const facts = (patch: Partial<RotationFacts> = {}): RotationFacts => ({
-  completedTasks: 0, openTasks: 0, activeAttempt: false, sessionStatus: 'idle', undeliveredMessages: 0, ...patch,
+  completedTasks: 0, openTasks: 0, activeAttempt: false, sessionStatus: 'idle', undeliveredMessages: 0, parkedMessages: 0, ...patch,
 })
 
 const team = (members: MemberRecord[], patch: Partial<TeamState> = {}): TeamState => ({
@@ -131,6 +132,31 @@ describe('readTeamRotation', () => {
     expect(() => readTeamRotation({ rotation: { enabled: 'yes' } as never })).toThrow()
     expect(() => readTeamRotation({ rotation: { maxContextTokens: -1 } })).toThrow()
     expect(() => readTeamRotation({ rotation: { maxContextTokens: 1.5 } })).toThrow()
+  })
+})
+
+/**
+ * Mail that blocks a rotation, and mail that does not.
+ *
+ * The first version counted every `stored` delivery. A comment carries `wakePolicy: 'never'`, so it
+ * waits for the member's own next turn — on a busy team, days — and the guard froze a reviewer with
+ * 727k tokens of context on two comments nobody was going to push.
+ */
+describe('pendingMailFor', () => {
+  it('counts only mail the host is about to push', () => {
+    const deliveries = [
+      { recipient: 'm-1', state: 'stored', wakePolicy: 'queue' },
+      { recipient: 'm-1', state: 'stored', wakePolicy: 'steer' },
+      { recipient: 'm-1', state: 'stored', wakePolicy: 'never' },
+      { recipient: 'm-1', state: 'delivered', wakePolicy: 'queue' },
+      { recipient: 'm-2', state: 'stored', wakePolicy: 'queue' },
+    ]
+    expect(pendingMailFor(deliveries, 'm-1')).toEqual({ pushPending: 2, parked: 1 })
+    expect(pendingMailFor([], 'm-1')).toEqual({ pushPending: 0, parked: 0 })
+  })
+
+  it('leaves an unknown policy on the blocking side, because it may be pushed', () => {
+    expect(pendingMailFor([{ recipient: 'm-1', state: 'stored' }], 'm-1')).toEqual({ pushPending: 1, parked: 0 })
   })
 })
 
@@ -399,6 +425,13 @@ describe('rotation service', () => {
     const [outcome] = await createRotationService(ports).check()
     expect(outcome?.retiredTitle).toBeUndefined()
     expect(h.sessions).toHaveLength(1)
+  })
+
+  it('rotates past parked comments and records them in the journal', async () => {
+    const h = harness({ context: 200_000, facts: async () => facts({ parkedMessages: 2 }) })
+    const outcomes = await createRotationService(h.ports).check()
+    expect(outcomes).toHaveLength(1)
+    expect(h.audits.find((event) => event.kind === 'member/rotated')?.parkedMessages).toBe(2)
   })
 
   it('does not require a title seam at all', async () => {
