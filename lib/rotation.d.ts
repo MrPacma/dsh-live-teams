@@ -65,6 +65,8 @@ export interface RotationPorts {
   readonly teamId: string;
   readonly workspaceId: string;
   readonly config: RotationConfig;
+  /** The effective config for this team: deployment row plus whatever the human set in the panel. */
+  readonly configOf?: ((team: TeamState) => RotationConfig) | undefined;
   readonly readTeam: () => Promise<TeamState>;
   readonly commit: (request: {
     expectedRevision: number;
@@ -103,6 +105,14 @@ export declare function readRotationConfig(value: unknown): {
   config: RotationConfig;
   warnings: readonly string[];
 };
+/**
+ * Apply a team's overrides on top of the deployment row.
+ *
+ * Only defined, well-formed keys are taken. The store already validated the block when it was
+ * written; this second check exists because `team.json` is a file on disk and a hand edit must not
+ * be able to switch a limit off by writing `null` or a string.
+ */
+export declare function effectiveRotationConfig(base: RotationConfig, override: unknown): RotationConfig;
 /**
  * Whether this member should be replaced now.
  *

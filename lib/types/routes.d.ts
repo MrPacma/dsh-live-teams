@@ -30,6 +30,7 @@ export declare const LIVE_TEAMS_TEAM_LEAD_ROUTE = "/api/live-teams/team/lead";
 export declare const LIVE_TEAMS_TEAM_BRIEFING_OPEN_ROUTE = "/api/live-teams/team/briefing/open";
 export declare const LIVE_TEAMS_MEMBER_GRANT_ROUTE = "/api/live-teams/member/grant";
 export declare const LIVE_TEAMS_DISPATCH_ROUTE = "/api/live-teams/dispatch";
+export declare const LIVE_TEAMS_TEAM_ROTATION_ROUTE = "/api/live-teams/team/rotation";
 export declare const LIVE_TEAMS_TASKS_ROUTE = "/api/live-teams/tasks";
 export declare const LIVE_TEAMS_TASK_ROUTE = "/api/live-teams/task";
 export declare const LIVE_TEAMS_TASK_ACCEPT_ROUTE = "/api/live-teams/task/accept";
@@ -493,6 +494,28 @@ export type LiveTeamsRouteOptions = {
         from: string;
         to: string;
     }>;
+    /** Rotation limits in force for this team, with where they came from. */
+    readonly readRotation?: () => Promise<LiveTeamsRotation | undefined>;
+    /** Set this team's rotation overrides; the human's own surface, like dispatch. */
+    readonly setRotation?: (request: LiveTeamsRotationRequest & {
+        actor: string;
+    }) => Promise<LiveTeamsRotation>;
+};
+export type LiveTeamsRotation = {
+    readonly enabled: boolean;
+    readonly maxContextTokens: number;
+    readonly maxCompletedTasks: number;
+    readonly cooldownMs: number;
+    readonly maxRotationsPerPass: number;
+    /** `team` when the panel has overrides in force, `profile` when the deployment row decides. */
+    readonly source: 'team' | 'profile';
+    readonly revision: number;
+};
+export type LiveTeamsRotationRequest = {
+    readonly enabled?: boolean;
+    readonly maxContextTokens?: number;
+    readonly maxCompletedTasks?: number;
+    readonly expectedRevision: number;
 };
 export type LiveTeamsSnapshotMember = {
     memberId: string;

@@ -412,6 +412,29 @@ export declare function setTeamDispatch(mode: 'auto' | 'paused', reason?: string
     from: string;
     to: string;
 }>;
+/**
+ * Rotation limits in force for this team.
+ *
+ * `source` says whether the panel's overrides or the deployment row decide, so the card can show
+ * "from profile" without pretending the numbers were chosen here.
+ */
+export type TeamRotation = {
+    enabled: boolean;
+    maxContextTokens: number;
+    maxCompletedTasks: number;
+    cooldownMs: number;
+    maxRotationsPerPass: number;
+    source: 'team' | 'profile';
+    revision: number;
+};
+export declare function fetchTeamRotation(session?: string, signal?: AbortSignal): Promise<TeamRotation>;
+/** The human's own surface, like dispatch: the host commits under the revision it was shown. */
+export declare function setTeamRotation(request: {
+    enabled?: boolean;
+    maxContextTokens?: number;
+    maxCompletedTasks?: number;
+    expectedRevision: number;
+}, session?: string): Promise<TeamRotation>;
 export declare function fetchTeamTask(taskId: string, session?: string, signal?: AbortSignal): Promise<TeamTaskDetail>;
 export declare function acceptTeamTask(taskId: string, note?: string, session?: string): Promise<AcceptTaskResult>;
 /**
