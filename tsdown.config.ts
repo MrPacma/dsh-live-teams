@@ -16,6 +16,7 @@ export default {
     'src/scope.ts',
     'src/path-diagnostics.ts',
     'src/session-bridge.ts',
+    'src/rotation.ts',
     'src/review-return-state.ts',
     'src/review-return-ports.ts',
     'src/review-return-guard.ts',

@@ -33,7 +33,7 @@ export { TEAM_ROOT, TeamStore, createTeamStore, readMemberBySessionSync, readTea
 export type { TeamId, MemberId, SessionId, BindingGeneration, ContactTarget, ContactGrant, MemberRecord, TeamState, TeamCandidate, TeamAdoption } from './team-store.js'
 export { TaskStore, createTaskStore, renderDocument, routeText, assignmentRouteText, deriveRouteContacts, routeAllowsContact, taskDocumentPath } from './task-store.js'
 export type { TaskKind, TaskStatus, TaskRoute, HumanContact, TeamTask, TaskAttempt, AttemptsState, TasksState, ClaimTaskRequest, ClaimTaskResult, AcknowledgeTaskRequest, CreateTaskRequest, CreateTaskResult, ListTasksOptions, ReadTaskResult, SubmissionArtifact, SubmissionSourceArtifact, SubmissionCheck, Submission, ReviewFinding, ReviewVerdict, ReviewRound, SubmissionsState, ReviewsState, SubmitTaskRequest, AcceptTaskRequest, AcceptTaskResult, ReviseTaskRequest, ReviseTaskResult, ReviewTaskRequest, ReviewTaskResult } from './task-store.js'
-export { createSessionBridge, toBridgeError } from './session-bridge.js'
+export { contextTokensOf, createSessionBridge, toBridgeError } from './session-bridge.js'
 export { assertSessionDescriptorInTeamWorkspace, assertSessionInTeamWorkspace, canonicalPath } from './binding.js'
 export { parseRoleDocument, readRoleRegistry, readRoleRegistrySync } from './roles.js'
 export type { LiveTeamsRole, ParsedRole, RolePermissions, RoleRegistry, RoleRegistrySync } from './roles.js'
@@ -42,6 +42,17 @@ export type { WorkspaceGuardOptions } from './binding.js'
 export type { SessionDescriptor, SessionController, SessionBridge, SessionBridgeDeps } from './session-bridge.js'
 export { SessionCommandQueue, createCommandQueue } from './command-queue.js'
 export type { CommandState, CommandRecord } from './command-queue.js'
+export { DEFAULT_ROTATION_CONFIG, createRotationService, decideRotation, readRotationConfig } from './rotation.js'
+export type {
+  RotationConfig,
+  RotationDecision,
+  RotationDecisionInput,
+  RotationFacts,
+  RotationOutcome,
+  RotationReason,
+  RotationService,
+  RotationSkip,
+} from './rotation.js'
 export { MailboxService, createMailbox, messageDeliveryOutcome, messagePolicy, resolveMailboxRecipient } from './mailbox.js'
 export { MEMBER_TOOL_NAMES, registerMemberTools, registerMemberToolsIfAvailable } from './member-tools.js'
 export type { MessageKind, MessageWakePolicy, MessageAckPolicy, MessageDeliveryState, MessageDeliveryOutcome, TeamMessage, MessageDelivery, MessageDraft, MailboxActor, MailboxRecipient, ResolvedMailboxRecipient, MailboxAuditEvent, MailboxAuthorizeRequest, MailboxOptions, CommandQueueLike, SendResult, AcknowledgeResult, CreateMailboxOptions } from './mailbox.js'

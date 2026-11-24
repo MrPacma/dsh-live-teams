@@ -23,3 +23,14 @@
         # repository whose status is unusable, and for exercising the fingerprint path in a
         # repository during verification.
         scopeMode: !!js process.env.DSH_LIVE_TEAMS_SCOPE_MODE ?? 'auto'
+        # B43: automatic member rotation. Off unless enabled: replacing a member's Session is a
+        # composition change, and the same reasoning that keeps `codingDispatch` manual applies.
+        # `maxContextTokens` is the prompt size at which the next turn costs more than the work;
+        # `maxCompletedTasks` is the point where a member's transcript stops being read and starts
+        # being re-sent. `0` disables either limit.
+        rotation:
+          enabled: !!js process.env.DSH_LIVE_TEAMS_ROTATION === '1'
+          maxContextTokens: !!js Number(process.env.DSH_LIVE_TEAMS_ROTATION_MAX_TOKENS ?? 150000)
+          maxCompletedTasks: !!js Number(process.env.DSH_LIVE_TEAMS_ROTATION_MAX_TASKS ?? 5)
+          cooldownMs: !!js Number(process.env.DSH_LIVE_TEAMS_ROTATION_COOLDOWN_MS ?? 600000)
+          maxRotationsPerPass: !!js Number(process.env.DSH_LIVE_TEAMS_ROTATION_MAX_PER_PASS ?? 1)

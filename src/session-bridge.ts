@@ -49,8 +49,15 @@ export interface SessionBridge {
   removeQueuedRequest(sessionId: string, requestId: string): Promise<QueueRemovalReceipt>
   create(request: { sessionId?: string; workspaceId?: string; cwd?: string; agentPreset?: string }): Promise<SessionDescriptor>
   inspect(sessionId: string): Promise<SessionDescriptor | undefined>
-  /** Observe an exact prompt's turn using metadata only, not generic agent liveness. */
+  /**
+   * Observe an exact prompt's turn using metadata only, not generic agent liveness.
+   */
   observeRequest(sessionId: string, requestId: string): Promise<SessionExecutionReceipt>
+  /**
+   * The prompt size of this Session's latest turn, or `undefined` when the host records no usage.
+   * A rotation limit is only applied to a measured Session.
+   */
+  contextTokens(sessionId: string): Promise<number | undefined>
   observeHumanActivity(sessionId: string, since: number, knownRequestIds: readonly string[]): Promise<boolean | undefined>
   validateAttachment(sessionId: string, workspaceId: string): Promise<SessionDescriptor>
   rename(sessionId: string, title: string): Promise<{ title: string; seq: number | undefined }>
@@ -65,6 +72,31 @@ function record(value: unknown): RecordValue {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : {}
 }
 function text(value: unknown): string | undefined { return typeof value === 'string' && value.length > 0 ? value : undefined }
+function amount(value: unknown): number | undefined { return typeof value === 'number' && Number.isFinite(value) ? value : undefined }
+
+/**
+ * The prompt size of a Session's latest turn, read from the Session's own usage record.
+ *
+ * `totalTokens` on an `assistant/message` is the size of the context that call sent — input, plus
+ * cached input, plus output — not a per-turn delta, so the newest one is the current window. Rotation
+ * reads it as "how much would the next turn re-send". Older hosts and some routes record no usage at
+ * all; `undefined` then means unmeasured, and no size limit is applied rather than a guessed one.
+ */
+export function contextTokensOf(events: readonly unknown[]): number | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = record(events[index])
+    if (event.type !== 'assistant/message') continue
+    const data = record(event.data)
+    const usage = record(data.usage ?? record(data.message).usage)
+    const total = amount(usage.totalTokens)
+    if (total !== undefined && total > 0) return total
+    const input = amount(usage.inputTokens)
+    const cached = amount(usage.cacheReadTokens)
+    const output = amount(usage.outputTokens)
+    if (input !== undefined && cached !== undefined && output !== undefined) return input + cached + output
+  }
+  return undefined
+}
 function isSubagentHeader(header: unknown): boolean {
   const value = record(header)
   return value.origin === 'subagent' || text(value.parentSession) !== undefined
@@ -219,6 +251,14 @@ export function createSessionBridge({ controller, agents, sessionQuery, liveSess
         if (isMissingSession(error)) return undefined
         throw toBridgeError(error)
       }
+    },
+    /**
+     * Deliberately silent on failure: an unreadable Session is an unmeasured one, and a rotation
+     * limit that guessed a size would rotate for the wrong reason. The caller treats `undefined` as
+     * "no evidence", which is what the decision table already does.
+     */
+    async contextTokens(sessionId) {
+      try { return contextTokensOf((await snapshotOf(sessionId)).events as readonly unknown[]) } catch { return undefined }
     },
     async validateAttachment(sessionId, workspaceId) {
       const descriptor = await bridge.inspect(sessionId)

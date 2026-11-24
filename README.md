@@ -151,6 +151,53 @@ Open the workspace in DSH Desktop and select the **Team** tab.
 Team state, tasks, submissions, reviews, and the activity journal are stored under
 `<workspace>/.dsh-live-teams`. Do not edit those files by hand: the plugin validates and locks them.
 
+### Automatic rotation (B43)
+
+A member is a long-lived Session, so every turn re-sends its whole transcript. Measured on a real
+team — 200 tasks, 7 700 model calls — the average prompt was ~460 000 tokens while a fresh Session
+starts at ~19 000. Compaction does not fix that: it ran 53–102 times per heavy Session, the window
+still settled around half a million tokens, and each compaction is itself a full-context call that
+summarises away the exact ids and evidence the review protocol depends on.
+
+Rotation replaces the Session, not the member record: a new Session is created, the rota (name, role,
+note, standing contact grants, lead selection) moves onto it, and the old member id is archived. The
+old Session stays readable, and the durable record — task documents, submissions, reviews, the
+briefing, the member note — carries the memory. Because the member id changes, the completed-task
+counter resets by construction.
+
+| Profile key | Environment | Meaning | Default |
+|---|---|---|---|
+| `rotation.enabled` | `DSH_LIVE_TEAMS_ROTATION=1` | Enables automatic rotation | `false` |
+| `rotation.maxContextTokens` | `DSH_LIVE_TEAMS_ROTATION_MAX_TOKENS` | Rotate when the last prompt reached this size; `0` disables the rule | `150000` |
+| `rotation.maxCompletedTasks` | `DSH_LIVE_TEAMS_ROTATION_MAX_TASKS` | Rotate after this many accepted tasks; `0` disables the rule | `5` |
+| `rotation.cooldownMs` | `DSH_LIVE_TEAMS_ROTATION_COOLDOWN_MS` | Quiet period after a refused rotation | `600000` |
+| `rotation.maxRotationsPerPass` | `DSH_LIVE_TEAMS_ROTATION_MAX_PER_PASS` | Members replaced per dispatch pass — each one creates a Session | `1` |
+
+```yaml
+# ~/.dsh/profiles/<profile>/cordis.patch.yml
+- id: live-teams
+  config:
+    rotation:
+      enabled: true
+      maxContextTokens: 150000
+      maxCompletedTasks: 5
+```
+
+`rotation: true` is accepted as the shorthand for "enabled, with the defaults above".
+
+What a pass will never do, because the task contract, its review route and the attempt all name the
+member id: rotate a member with an open task or an open review route, with an active attempt, while
+its Session is running, while it has stored-but-undelivered mail, or while it is `paused`. Rotation
+runs inside the dispatcher pass (not on its own timer) and only while the team is not paused, so the
+single-flight latch, the shutdown path and the human's pause all cover it. Each rotation is recorded
+as a `member/rotated` journal event with the member ids, both Session ids, the reason, the measured
+context and the completed-task count; a Session that was created but whose membership commit was
+refused is recorded as `session/orphaned` rather than silently dropped.
+
+Rotation is a configuration-level feature: it has no panel control, and enabling it changes the
+team's composition, which is why it ships off. To see what it would do without enabling it, read the
+journal after a pass or run the decision table in `src/rotation.test.ts`.
+
 ## Compatibility
 
 - DSH Desktop **0.1.5-rc.1 or newer**.
@@ -187,7 +234,7 @@ DSH deployment or workspace level; the plugin does not fake it.
 
 ```bash
 pnpm --filter dsh-live-teams check   # host and client types
-pnpm --filter dsh-live-teams test    # 749 tests
+pnpm --filter dsh-live-teams test    # 774 tests (8 known Windows-only failures)
 pnpm --filter dsh-live-teams build   # host, client, declarations
 ```
 

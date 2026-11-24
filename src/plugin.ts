@@ -19,6 +19,7 @@ import { createSubmissionNoticePort, submissionNoticeDeliveryAllowed } from './s
 import { createLifecycleNoticePort, lifecycleNoticeDeliveryAllowed } from './lifecycle-notice.js'
 import { createDispatcher, projectDispatch, type CodingDispatch, type Dispatcher, type ReconcileResult } from './dispatch.js'
 import { createMembershipContextProvider, type MembershipContextBinding, type MembershipContextProvider } from './context-provider.js'
+import { createRotationService, readRotationConfig, type RotationFacts, type RotationOutcome } from './rotation.js'
 import { registerMemberToolsIfAvailable } from './member-tools.js'
 import { createTaskStore, permittedContacts, type TaskStore } from './task-store.js'
 import { gitChangedPaths, gitCommittedPaths, workspaceMode } from './changed-paths.js'
@@ -102,7 +103,22 @@ export type PluginConfig = { enabled?: boolean; workspacePath?: string; workspac
    * The explicit values exist for a repository whose status is unusable, and for verifying
    * the fingerprint path inside a repository.
    */
-  scopeMode?: 'auto' | 'git' | 'files' }
+  scopeMode?: 'auto' | 'git' | 'files'
+  /**
+   * Replace a member's Session when its measured cost crosses a limit (B43).
+   *
+   * Off by default and configurable through the profile row, because rotation changes the team's
+   * composition — the same class of decision `codingDispatch` keeps manual. The limits are
+   * documented in `rotation.ts` next to the numbers they default to.
+   */
+  rotation?: {
+    enabled?: boolean
+    maxContextTokens?: number
+    maxCompletedTasks?: number
+    cooldownMs?: number
+    maxRotationsPerPass?: number
+  } | boolean
+}
 export type LiveTeamsService = {
   teamId: string
   workspacePath: string
@@ -142,6 +158,11 @@ export function apply(ctx: HostContext, config: PluginConfig = {}): void {
   // A compatible host needs no line: the verdict is on the team status for anyone who asks.
   if (compatibility.verdict !== 'compatible') ctx.logger?.warn?.(`live-teams: ${compatibility.detail}`)
   const codingDispatch: CodingDispatch = config.codingDispatch === 'automatic' ? 'automatic' : 'manual'
+  // `rotation: true` is the shorthand for "on, with the measured defaults"; anything else is read as
+  // a config object and normalized defensively. Warnings are logged once, at mount.
+  const rotationInput = config.rotation === true ? { enabled: true } : config.rotation
+  const rotation = readRotationConfig(rotationInput)
+  for (const warning of rotation.warnings) ctx.logger?.warn?.(warning)
   const sharedPaths = Array.isArray(config.sharedPaths) ? config.sharedPaths.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0) : []
   const globalRolesDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'roles')
   let disposing = false
@@ -490,6 +511,72 @@ export function apply(ctx: HostContext, config: PluginConfig = {}): void {
       listCommands: async () => queue.list(),
       appendAudit: async event => { await audit(event) },
     })
+    /**
+     * Everything the rotation decision reads about one member, gathered in one place so the decision
+     * table itself stays pure and testable.
+     *
+     * Two things here are easy to get wrong and matter more than the limits: a member who is the
+     * *reviewer* of an open task holds that work too (its id is in the route, and a new id would
+     * strand the round), and mail that is stored but not yet delivered would be delivered to a
+     * member that no longer exists. Both block rotation.
+     */
+    const rotationFacts = async (member: MemberRecord): Promise<RotationFacts> => {
+      const memberId = member.memberId
+      const universe = await taskStore.listTasks({ includeArchived: true })
+      let openTasks = 0
+      let completedTasks = 0
+      for (const task of universe) {
+        const assigned = task.assignee === memberId
+        const reviewing = task.route?.type === 'review' && task.route.reviewer === memberId
+        if (!assigned && !reviewing) continue
+        if (task.status === 'completed') {
+          if (assigned) completedTasks += 1
+          continue
+        }
+        if (task.status === 'cancelled') continue
+        if (task.archivedPath === undefined) openTasks += 1
+      }
+      const attempts = (await taskStore.readAttempts()).attempts
+      const activeAttempt = attempts.some((attempt) => attempt.memberId === memberId && (attempt.status === 'active' || attempt.status === 'revoking'))
+      const deliveries = await mailbox.listDeliveries()
+      const undeliveredMessages = deliveries.filter((delivery) => delivery.recipient === memberId && delivery.state === 'stored').length
+      const sessionId = member.sessionId
+      let sessionStatus: 'running' | 'idle' | 'unknown' = 'unknown'
+      let agentPreset: string | undefined
+      if (sessionId !== undefined) {
+        const agent = ctx.agents?.get?.(sessionId) as { status?: unknown } | undefined
+        sessionStatus = agent === undefined ? 'unknown' : agent.status === 'running' ? 'running' : agent.status === 'idle' ? 'idle' : 'unknown'
+        try { agentPreset = (await bridge.inspect(sessionId))?.agentPreset } catch { agentPreset = undefined }
+      }
+      return { completedTasks, openTasks, activeAttempt, sessionStatus, undeliveredMessages, agentPreset }
+    }
+    // The binding is created after the service, and the service needs the binding to register the
+    // replacement Session in the session→binding map before that Session's first turn.
+    let bindingRef: Binding | undefined
+    const rotationService = createRotationService({
+      teamId: input.teamId,
+      workspaceId: input.id,
+      config: rotation.config,
+      readTeam: async () => (await ensureStore()).open(),
+      commit: async (request) => await (await ensureStore()).commit(input.teamId, request),
+      factsOf: rotationFacts,
+      measureContextTokens: async (sessionId) => await bridge.contextTokens(sessionId),
+      createSession: async (request) => {
+        await bridge.create({
+          sessionId: request.sessionId,
+          workspaceId: request.workspaceId,
+          ...(request.agentPreset === undefined ? {} : { agentPreset: request.agentPreset }),
+        })
+      },
+      newSessionId: () => `session-${randomUUID()}`,
+      audit: async (event) => { await audit(event) },
+      onRotated: (outcome: RotationOutcome) => {
+        if (bindingRef === undefined) return
+        sessionBindings.set(outcome.sessionId, bindingRef)
+      },
+      titleSession: async (sessionId, displayName) => { await titleSession(sessionId, displayName, 'member-added', undefined) },
+      logger: (message) => ctx.logger?.warn?.(message),
+    })
     let explainedInactive = false
     dispatcher = createDispatcher({
       workspacePath,
@@ -504,6 +591,7 @@ export function apply(ctx: HostContext, config: PluginConfig = {}): void {
       recoverSubmissionNotifications: async () => taskStore.recoverSubmissionNotifications(),
       recoverLifecycleNotifications: async () => taskStore.recoverLifecycleNotifications(),
       recoverObsoleteAssignments,
+      rotation: async () => { await rotationService.check() },
       ...(sharedPaths.length === 0 ? {} : { sharedPaths }),
     gitTip: async (ref: string) => await refTip(workspacePath, ref),
       // A pass that refuses to run says which team it thinks is inactive: a wrong
@@ -764,6 +852,7 @@ export function apply(ctx: HostContext, config: PluginConfig = {}): void {
         return typeof model === 'string' && model.length > 0 ? model : undefined
       }, onError: (error) => ctx.logger?.warn?.(`live-teams: membership context unavailable: ${String(error)}`) })
     const binding: Binding = { path: workspacePath, id: input.id, teamId: input.teamId, teamName: input.teamName, store, taskStore, storeFacade, contextBinding, contextProvider, routeOptions, queue, mailbox, dispatcher, adoption, readDispatch: readDispatchProjection, setDispatch: setDispatchMode, ensureStore }
+    bindingRef = binding
     bindingsByWorkspaceId.set(input.id, binding)
     return binding
   }

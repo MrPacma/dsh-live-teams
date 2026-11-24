@@ -1,6 +1,6 @@
-{
+﻿{
   "name": "dsh-live-teams",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "A team of long-lived DSH Sessions with durable tasks, review and acceptance.",
   "main": "lib/index.js",

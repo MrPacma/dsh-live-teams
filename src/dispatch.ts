@@ -287,6 +287,12 @@ export type DispatcherPorts = {
   recoverSubmissionNotifications?: () => Promise<void>
   recoverLifecycleNotifications?: () => Promise<void>
   recoverObsoleteAssignments?: () => Promise<void>
+  /**
+   * Replace a member's Session when its measured cost crosses a configured limit. Runs inside the
+   * pass — not on its own timer — so the single-flight latch and the shutdown path already cover it,
+   * and a member replaced here can be dispatched in the same pass.
+   */
+  rotation?: () => Promise<void>
   /** Whether this deployment starts coding work on its own; `manual` by default. */
   codingDispatch?: CodingDispatch
   /** Extra shared hotspots, on top of the built-in list. */
@@ -574,6 +580,16 @@ export function createDispatcher(ports: DispatcherPorts): Dispatcher {
     await ports.recoverLifecycleNotifications?.()
     await observeStalledAttempts(state, result)
     if (dispatch.mode === 'auto') await startHalf(state, result)
+    // Rotation runs last and only on the automatic half: a paused team is a human decision, and
+    // replacing a member's Session behind that decision would be the kind of hidden autonomy this
+    // product avoids. It is also last on purpose — every step above reads the team state a rotation
+    // would change, so replacing a member earlier in the pass would leave those steps assigning to a
+    // member id that no longer exists.
+    if (dispatch.mode === 'auto' && ports.rotation !== undefined) {
+      try { await ports.rotation() } catch (error) {
+        logger(`live-teams: rotation pass failed: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
     return result
   }
 
