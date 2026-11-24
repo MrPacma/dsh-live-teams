@@ -44,7 +44,10 @@ export interface RotationFacts {
   readonly openTasks: number;
   readonly activeAttempt: boolean;
   readonly sessionStatus: 'running' | 'idle' | 'unknown';
+  /** Mail the host is about to push to this Session; see `pendingMailFor`. */
   readonly undeliveredMessages: number;
+  /** Comments parked for this member's own next turn: recorded, never blocking. */
+  readonly parkedMessages: number;
   /** The old Session's agent preset, copied so the replacement works the same way. */
   readonly agentPreset?: string | undefined;
   /**
@@ -148,6 +151,26 @@ export declare function readRotationConfig(value: unknown): {
  * be able to switch a limit off by writing `null` or a string.
  */
 export declare function effectiveRotationConfig(base: RotationConfig, override: unknown): RotationConfig;
+/**
+ * Split a member's stored mail into what blocks a rotation and what does not.
+ *
+ * `state === 'stored'` alone is too coarse. A `comment` carries `wakePolicy: 'never'`: it never wakes a
+ * Session and waits for the member's own next turn, which on a busy team can be days — the first
+ * version of this guard therefore froze a reviewer with 727k tokens of context for three days on
+ * comments nobody was ever going to push. Only mail the host is about to push (`queue`/`steer`) may
+ * block, because that is mail a rotation would actually drop mid-flight. Parked comments are counted
+ * and recorded in the journal, and the mailbox marks them undelivered for the retired id on the next
+ * pass — visible, not silent.
+ */
+export interface MailRow {
+  readonly recipient?: unknown;
+  readonly state?: unknown;
+  readonly wakePolicy?: unknown;
+}
+export declare function pendingMailFor(deliveries: readonly MailRow[], memberId: string): {
+  pushPending: number;
+  parked: number;
+};
 /**
  * Whether this member should be replaced now.
  *
