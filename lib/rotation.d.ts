@@ -53,6 +53,8 @@ export interface RotationFacts {
    * one visible way rotation could change the quality of the work.
    */
   readonly modelSelection?: ModelSelection | undefined;
+  /** The old Session's current title, so the retired one keeps the name the human knows. */
+  readonly sessionTitle?: string | undefined;
 }
 export interface RotationOutcome {
   readonly previousMemberId: string;
@@ -65,6 +67,8 @@ export interface RotationOutcome {
   readonly contextTokens?: number | undefined;
   /** The model carried onto the replacement Session, when the old one named one. */
   readonly model?: ModelSelection | undefined;
+  /** The title the retired Session now carries, when it was stamped. */
+  readonly retiredTitle?: string | undefined;
 }
 export interface RotationCommit {
   readonly member: MemberRecord;
@@ -100,6 +104,19 @@ export interface RotationPorts {
    * profile. Returns false when the host exposes no such seam.
    */
   readonly applyModelSelection?: ((sessionId: string, selection: ModelSelection) => Promise<boolean>) | undefined;
+  /**
+   * Stamp the replaced Session so the two Sessions are distinguishable in the session list.
+   *
+   * Returns the title that was applied, or `undefined` when nothing was renamed (already stamped, no
+   * title service, or the base was refused). Called only after the membership commit: a rotation that
+   * was refused must not rename a Session that stays a member.
+   */
+  readonly retireTitle?: ((request: {
+    sessionId: string;
+    displayName: string;
+    previousTitle?: string;
+    at: number;
+  }) => Promise<string | undefined>) | undefined;
   readonly newSessionId: () => string;
   readonly audit: (event: Record<string, unknown>) => Promise<void>;
   /** Wire the new Session into the host's session→binding map before its first turn. */
