@@ -1,3 +1,4 @@
+import { ModelSelection } from "./session-bridge.js";
 import { MemberRecord, TeamState } from "./team-store.js";
 export interface RotationConfig {
   readonly enabled: boolean;
@@ -46,6 +47,12 @@ export interface RotationFacts {
   readonly undeliveredMessages: number;
   /** The old Session's agent preset, copied so the replacement works the same way. */
   readonly agentPreset?: string | undefined;
+  /**
+   * The old Session's model choice. A Session carries its own model, and `session.create` accepts
+   * none: without this a rotated member silently falls back to the deployment default, which is the
+   * one visible way rotation could change the quality of the work.
+   */
+  readonly modelSelection?: ModelSelection | undefined;
 }
 export interface RotationOutcome {
   readonly previousMemberId: string;
@@ -56,6 +63,8 @@ export interface RotationOutcome {
   readonly detail: string;
   readonly completedTasks: number;
   readonly contextTokens?: number | undefined;
+  /** The model carried onto the replacement Session, when the old one named one. */
+  readonly model?: ModelSelection | undefined;
 }
 export interface RotationCommit {
   readonly member: MemberRecord;
@@ -82,6 +91,15 @@ export interface RotationPorts {
     workspaceId: string;
     agentPreset?: string;
   }) => Promise<void>;
+  /**
+   * Record a model selection on the replacement Session.
+   *
+   * Implemented as the same session event DSH's own composer writes, and deliberately *not* through
+   * `sessionController.selectModel`: that call also persists the selection as the deployment-wide
+   * default model, so copying one member's model would silently re-model every other Session in the
+   * profile. Returns false when the host exposes no such seam.
+   */
+  readonly applyModelSelection?: ((sessionId: string, selection: ModelSelection) => Promise<boolean>) | undefined;
   readonly newSessionId: () => string;
   readonly audit: (event: Record<string, unknown>) => Promise<void>;
   /** Wire the new Session into the host's session→binding map before its first turn. */

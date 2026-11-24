@@ -20,6 +20,29 @@ export interface SessionDescriptor {
    */
   blank?: boolean;
 }
+/**
+ * The model a Session runs, as the human picked it in the composer.
+ *
+ * A Session carries its own selection: `agent/model/selection` records a pending choice and every
+ * `request/header` records the one the last turn actually sent. Rotation has to carry it, because
+ * `session.create` accepts no selection at all — a new Session silently starts on the deployment
+ * default instead of the model the human chose for that member.
+ */
+export interface ModelSelection {
+  readonly provider: string;
+  readonly model: string;
+  readonly reasoningEffort?: string;
+}
+/**
+ * The selection this Session would use next.
+ *
+ * A pending `model/selection` wins over the last request: it is the choice the next turn will send.
+ * Otherwise the newest `request/header` says what the last turn actually used, with one subtlety
+ * copied from DSH's own fold — when the adapter defaulted the effort, `adapterDefaults.reasoningEffort`
+ * is true and the effort in the config is not a human choice, so it is left out instead of being
+ * frozen into an explicit value the human never picked.
+ */
+export declare function modelSelectionOf(events: readonly unknown[]): ModelSelection | undefined;
 export interface SessionController {
   create(payload: Record<string, unknown>): Promise<unknown>;
   /**
@@ -78,6 +101,8 @@ export interface SessionBridge {
    * A rotation limit is only applied to a measured Session.
    */
   contextTokens(sessionId: string): Promise<number | undefined>;
+  /** The model this Session would use next, or `undefined` when it never named one. */
+  modelSelection(sessionId: string): Promise<ModelSelection | undefined>;
   observeHumanActivity(sessionId: string, since: number, knownRequestIds: readonly string[]): Promise<boolean | undefined>;
   validateAttachment(sessionId: string, workspaceId: string): Promise<SessionDescriptor>;
   rename(sessionId: string, title: string): Promise<{
