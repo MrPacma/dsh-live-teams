@@ -3,7 +3,6 @@ import { ReviewReturn } from "./review-return-state.js";
 import { LifecycleNoticeFence, LifecycleNoticeIntent, LifecycleNoticeRequest } from "./lifecycle-notice.js";
 import { Migration } from "./migrations.js";
 import { TeamState } from "./team-store.js";
-//#region src/task-store.d.ts
 export type TaskKind = 'work' | 'research' | 'requirements' | 'implementation' | 'verification' | 'review' | 'repair' | 'integration';
 export type TaskStatus = 'draft' | 'ready' | 'claimed' | 'in_progress' | 'waiting' | 'needs_human' | 'completed' | 'failed' | 'cancelled';
 export type TaskRoute = {
@@ -901,5 +900,4 @@ export declare class TaskStore {
   private validateContract;
 }
 export declare function createTaskStore(options: TaskStoreOptions): TaskStore;
-//#endregion
 export { type ReviewReturn, renderDocument };

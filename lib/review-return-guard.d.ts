@@ -1,7 +1,6 @@
-import { TeamMessage } from "./mailbox.js";
 import { TaskStore } from "./task-store.js";
 import { SessionBridge } from "./session-bridge.js";
-//#region src/review-return-guard.d.ts
+import { TeamMessage } from "./mailbox.js";
 /** Fresh authority observation outside every persistence lock, immediately before enqueue. */
 export declare function createReviewReturnGuard(deps: {
   store: Pick<TaskStore, 'isReviewReturnCurrent' | 'readAttempts' | 'blockReviewReturn'>;
@@ -9,4 +8,3 @@ export declare function createReviewReturnGuard(deps: {
   readEvents: () => Promise<readonly unknown[]>;
   knownRequestIds: (sessionId: string) => Promise<readonly string[]>;
 }): (message: Pick<TeamMessage, "from" | "threadId">, sessionId?: string, bindingGeneration?: number) => Promise<boolean>;
-//#endregion

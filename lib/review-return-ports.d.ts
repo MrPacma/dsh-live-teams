@@ -1,8 +1,7 @@
 import { ReviewReturn } from "./review-return-state.js";
+import { SessionBridge, SessionExecutionReceipt } from "./session-bridge.js";
 import { MailboxService, TeamMessage } from "./mailbox.js";
 import { ReviewReturnRequest, TaskStore } from "./task-store.js";
-import { SessionBridge, SessionExecutionReceipt } from "./session-bridge.js";
-//#region src/review-return-ports.d.ts
 type Fence = Pick<ReviewReturn, 'roundId' | 'submissionId' | 'attemptId' | 'generation' | 'assignee' | 'sessionId' | 'bindingGeneration'> & {
   taskId: string;
 };
@@ -52,4 +51,4 @@ export declare function createReviewReturnPorts(deps: {
     requestId: string;
   } | undefined>;
 };
-//#endregion
+export {};

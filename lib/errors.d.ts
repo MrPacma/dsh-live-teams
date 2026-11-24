@@ -1,4 +1,3 @@
-//#region src/errors.d.ts
 /** Stable host-side error taxonomy and platform translation. */
 export declare const ERROR_CODES: Readonly<{
   readonly SESSION_NOT_FOUND: "SESSION_NOT_FOUND";
@@ -33,4 +32,3 @@ export declare class LiveTeamsError extends Error {
 /** Translate platform failures into stable domain errors. */
 export declare function translatePlatformError(error: unknown): LiveTeamsError;
 export declare function platformErrorMappings(): ReadonlyMap<string, ErrorCode>;
-//#endregion

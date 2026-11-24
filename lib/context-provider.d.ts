@@ -1,7 +1,6 @@
 import { MemberRecord, TeamState } from "./team-store.js";
-import { TaskAttempt, TeamTask } from "./task-store.js";
 import { LiveTeamsRole } from "./roles.js";
-//#region src/context-provider.d.ts
+import { TaskAttempt, TeamTask } from "./task-store.js";
 export declare const MEMBERSHIP_CONTEXT_NAME = "live-teams:membership";
 export declare const MEMBERSHIP_CONTEXT_ORDER = 125;
 export declare function sessionIdOf(assemblyContext: unknown): string | undefined;
@@ -109,4 +108,4 @@ export type MembershipContextProvider = {
   };
 };
 export declare function createMembershipContextProvider(options: MembershipContextOptions): MembershipContextProvider;
-//#endregion
+export {};

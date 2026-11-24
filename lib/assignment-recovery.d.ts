@@ -1,8 +1,7 @@
-import { TeamMessage } from "./mailbox.js";
 import { TaskStore } from "./task-store.js";
 import { SessionBridge } from "./session-bridge.js";
+import { TeamMessage } from "./mailbox.js";
 import { CommandRecord } from "./command-queue.js";
-//#region src/assignment-recovery.d.ts
 type OwnedCommand = Pick<CommandRecord, 'requestId' | 'causationId' | 'sessionId' | 'bindingGeneration' | 'mode'>;
 /** Bounded reconciliation of exact plugin-owned input; no task mutation or Agent interruption. */
 export declare function createAssignmentRecovery(deps: {
@@ -14,4 +13,4 @@ export declare function createAssignmentRecovery(deps: {
   appendAudit: (event: Record<string, unknown>) => Promise<void>;
   limit?: number;
 }): () => Promise<void>;
-//#endregion
+export {};

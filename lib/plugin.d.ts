@@ -1,13 +1,12 @@
-import { MailboxService } from "./mailbox.js";
+import { ToolRuntime } from "@deepseek-ai/dsh-tools";
 import { MemberRecord, TeamStore } from "./team-store.js";
-import { TaskStore } from "./task-store.js";
 import { SessionBridge, SessionQuerySource, createSessionBridge } from "./session-bridge.js";
 import { SessionCommandQueue } from "./command-queue.js";
+import { MailboxService } from "./mailbox.js";
 import { ReconcileResult } from "./dispatch.js";
 import { MembershipContextProvider } from "./context-provider.js";
+import { TaskStore } from "./task-store.js";
 import { LiveTeamsDispatch, LiveTeamsWebServer } from "./routes.js";
-import { ToolRuntime } from "@deepseek-ai/dsh-tools";
-//#region src/plugin.d.ts
 export declare const name = "live-teams-host";
 export declare const inject: readonly ["sessionController", "sessions", "agents", "systemPrompt", "workspaceRegistry"];
 type WorkspaceEntry = {
@@ -79,6 +78,20 @@ export type PluginConfig = {
    * the fingerprint path inside a repository.
    */
   scopeMode?: 'auto' | 'git' | 'files';
+  /**
+   * Replace a member's Session when its measured cost crosses a limit (B43).
+   *
+   * Off by default and configurable through the profile row, because rotation changes the team's
+   * composition — the same class of decision `codingDispatch` keeps manual. The limits are
+   * documented in `rotation.ts` next to the numbers they default to.
+   */
+  rotation?: {
+    enabled?: boolean;
+    maxContextTokens?: number;
+    maxCompletedTasks?: number;
+    cooldownMs?: number;
+    maxRotationsPerPass?: number;
+  } | boolean;
 };
 export type LiveTeamsService = {
   teamId: string;
@@ -107,5 +120,4 @@ export type LiveTeamsService = {
  * every request is resolved through its Session's cwd.
  */
 export declare function apply(ctx: HostContext, config?: PluginConfig): void;
-//#endregion
 export { apply as default };

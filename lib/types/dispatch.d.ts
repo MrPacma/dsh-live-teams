@@ -134,6 +134,12 @@ export type DispatcherPorts = {
     recoverSubmissionNotifications?: () => Promise<void>;
     recoverLifecycleNotifications?: () => Promise<void>;
     recoverObsoleteAssignments?: () => Promise<void>;
+    /**
+     * Replace a member's Session when its measured cost crosses a configured limit. Runs inside the
+     * pass — not on its own timer — so the single-flight latch and the shutdown path already cover it,
+     * and a member replaced here can be dispatched in the same pass.
+     */
+    rotation?: () => Promise<void>;
     /** Whether this deployment starts coding work on its own; `manual` by default. */
     codingDispatch?: CodingDispatch;
     /** Extra shared hotspots, on top of the built-in list. */

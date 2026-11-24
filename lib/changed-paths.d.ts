@@ -1,4 +1,3 @@
-//#region src/changed-paths.d.ts
 /**
  * What changed in a workspace, for the declared-scope check (B30).
  *
@@ -33,4 +32,3 @@ export declare function gitChangedPaths(workspacePath: string): Promise<string[]
  */
 export type WorkspaceMode = 'git' | 'files';
 export declare function workspaceMode(workspacePath: string): Promise<WorkspaceMode | undefined>;
-//#endregion

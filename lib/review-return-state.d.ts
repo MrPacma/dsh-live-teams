@@ -1,5 +1,4 @@
 import { SubmissionNotificationReceipt } from "./task-store.js";
-//#region src/review-return-state.d.ts
 export declare const REVIEW_RETURN_STATES: readonly ["pending", "sending", "delivered", "started", "completed", "blocked", "failed", "unconfirmed", "superseded"];
 export interface ReviewReturn {
   roundId: string;
@@ -24,4 +23,3 @@ export interface ReviewReturn {
 export declare function reviewReturnNoticeClass(intent: Pick<ReviewReturn, 'state' | 'reason'>): string | undefined;
 /** Whitelist operational metadata; never expose arbitrary source/message bodies. */
 export declare function parseReviewReturn(value: unknown): ReviewReturn;
-//#endregion

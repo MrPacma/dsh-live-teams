@@ -1,4 +1,3 @@
-//#region src/mailbox.d.ts
 export type MessageKind = 'message' | 'direction' | 'comment';
 export type MessageWakePolicy = 'never' | 'queue' | 'steer';
 export type MessageAckPolicy = 'delivery' | 'consumption' | 'formal';
@@ -275,5 +274,4 @@ export declare class MailboxService {
 }
 export type CreateMailboxOptions = MailboxOptions;
 export declare function createMailbox(options: MailboxOptions): MailboxService;
-//#endregion
 export { messagePolicy };

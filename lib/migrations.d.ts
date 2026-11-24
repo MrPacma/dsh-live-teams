@@ -1,4 +1,3 @@
-//#region src/migrations.d.ts
 /**
  * Bringing stored state forward.
  *
@@ -14,4 +13,3 @@
  * rather than a redesign.
  */
 export type Migration = (state: unknown) => unknown;
-//#endregion

@@ -1,4 +1,3 @@
-//#region src/tree-snapshot.d.ts
 /**
  * A cheap fingerprint of a workspace tree, for the scope record in `files` mode (B32).
  *
@@ -25,4 +24,3 @@ export type TreeSnapshot = Readonly<Record<string, string>>;
 export declare function snapshotTree(workspacePath: string): Promise<TreeSnapshot | undefined>;
 /** Paths added, changed or removed between two snapshots, sorted for a stable record. */
 export declare function diffSnapshots(before: TreeSnapshot, after: TreeSnapshot): string[];
-//#endregion

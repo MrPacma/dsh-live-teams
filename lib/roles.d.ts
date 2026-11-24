@@ -1,4 +1,3 @@
-//#region src/roles.d.ts
 export type RolePermissions = {
   readonly workspaceWrite?: boolean;
   readonly canDelegate?: boolean;
@@ -32,4 +31,3 @@ export type RoleRegistry = {
 export declare function readRoleRegistrySync(globalDirectory: string, workspaceDirectory: string): RoleRegistry;
 export declare function readRoleRegistry(globalDirectory: string, workspaceDirectory: string): Promise<RoleRegistry>;
 export declare function parseRoleDocument(id: string, contents: string, filePath?: string): ParsedRole;
-//#endregion

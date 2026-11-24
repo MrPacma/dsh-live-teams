@@ -1,4 +1,3 @@
-//#region src/git-artifacts.d.ts
 export type BaseInfo = {
   readonly ref: string;
   readonly sha: string;
@@ -47,4 +46,3 @@ export type IntegrationOutcome = 'integrated' | 'stale' | 'index-failed';
 export declare function integrateCommit(workspacePath: string, ref: string, headSha: string, expectedTip: string | undefined, commitPaths?: readonly string[]): Promise<IntegrationOutcome>;
 /** Paths a commit changes relative to a base, for a reviewer that wants the list. */
 export declare function commitPathsOf(workspacePath: string, from: string, to: string): Promise<string[] | undefined>;
-//#endregion

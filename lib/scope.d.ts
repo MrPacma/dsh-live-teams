@@ -1,4 +1,3 @@
-//#region src/scope.d.ts
 /**
  * Declared task scope: what a task says it may touch, and how two declarations are
  * compared. The comparison is deliberately conservative — it reports an overlap when
@@ -59,4 +58,3 @@ export declare function outsideScope(changed: readonly string[], declared: reado
 /** Two declarations that a reviewer can compare without re-reading the contract. */
 export declare function scopeSummary(paths: readonly string[] | undefined): string;
 export declare function resolveWorkspacePath(workspacePath: string, entry: string): string;
-//#endregion

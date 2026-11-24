@@ -1,6 +1,5 @@
 import { MailboxService, TeamMessage } from "./mailbox.js";
 import { SubmissionNotificationReceipt, TaskStore, TeamTask } from "./task-store.js";
-//#region src/lifecycle-notice.d.ts
 export type LifecycleNoticeKind = 'review-verdict' | 'acceptance' | 'cancellation' | 'direction';
 export interface LifecycleNoticeIntent {
   id: string;
@@ -38,4 +37,3 @@ export declare function createLifecycleNoticePort(options: {
   teamId: string;
   mailbox: () => Pick<MailboxService, 'sendFromSchedulerOnce'> | undefined;
 }): (request: LifecycleNoticeRequest) => Promise<SubmissionNotificationReceipt>;
-//#endregion

@@ -1,5 +1,4 @@
 import { ErrorCode } from "./errors.js";
-//#region src/command-queue.d.ts
 export type CommandState = 'pending' | 'leased' | 'admitted' | 'applied' | 'failed';
 export interface CommandRecord {
   commandId: string;
@@ -57,4 +56,4 @@ export declare class SessionCommandQueue {
   private read;
 }
 export declare function createCommandQueue(options: QueueOptions): SessionCommandQueue;
-//#endregion
+export {};

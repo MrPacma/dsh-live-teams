@@ -1,4 +1,3 @@
-//#region src/path-diagnostics.d.ts
 export type PathWarning = {
   code: 'path-no-match' | 'path-scan-incomplete';
   pattern: string;
@@ -9,4 +8,3 @@ export declare function diagnosePaths(workspace: string, declared: readonly stri
   maxEntries?: number;
   maxMillis?: number;
 }): Promise<PathWarning[]>;
-//#endregion

@@ -1,4 +1,3 @@
-//#region src/team-store.d.ts
 export type TeamId = string;
 export type MemberId = string;
 export type SessionId = string;
@@ -219,5 +218,4 @@ export declare function readMemberBySessionSync(request: {
   teamId: string;
   sessionId: string;
 }): MemberRecord | undefined;
-//#endregion
 export { TEAM_ROOT };

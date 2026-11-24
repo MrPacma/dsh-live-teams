@@ -1,10 +1,9 @@
-import { MailboxService, MessageDelivery, MessageKind, TeamMessage } from "./mailbox.js";
 import { MemberRecord, TeamState } from "./team-store.js";
-import { ReadTaskResult, TaskStore, TeamTask } from "./task-store.js";
 import { SessionDescriptor } from "./session-bridge.js";
-import { DispatchEvaluation } from "./dispatch.js";
 import { RoleRegistry } from "./roles.js";
-//#region src/routes.d.ts
+import { MailboxService, MessageDelivery, MessageKind, TeamMessage } from "./mailbox.js";
+import { ReadTaskResult, TaskStore, TeamTask } from "./task-store.js";
+import { DispatchEvaluation } from "./dispatch.js";
 export declare const LIVE_TEAMS_MEMBERS_ROUTE = "/api/live-teams/members";
 export declare const LIVE_TEAMS_CANDIDATES_ROUTE = "/api/live-teams/candidates";
 export declare const LIVE_TEAMS_MEMBER_ROLE_ROUTE = "/api/live-teams/members/role";
@@ -596,4 +595,4 @@ export declare function projectLiveTeamsAttention(state: TeamState, messages: re
 export declare function projectLiveTeamsSnapshot(state: TeamState, options: Pick<LiveTeamsRouteOptions, 'teamId' | 'teamName' | 'workspacePath' | 'agents'>, tasks?: readonly TeamTask[]): LiveTeamsSnapshot;
 export declare function projectLiveTeamsCandidates(state: TeamState, descriptors: readonly SessionDescriptor[], options: Pick<LiveTeamsRouteOptions, 'teamId' | 'teamName' | 'workspacePath'>): LiveTeamsCandidates;
 export declare function registerLiveTeamsRoutes(ctx: LiveTeamsRouteContext, options: LiveTeamsRouteOptions): () => void;
-//#endregion
+export {};

@@ -69,8 +69,15 @@ export interface SessionBridge {
         agentPreset?: string;
     }): Promise<SessionDescriptor>;
     inspect(sessionId: string): Promise<SessionDescriptor | undefined>;
-    /** Observe an exact prompt's turn using metadata only, not generic agent liveness. */
+    /**
+     * Observe an exact prompt's turn using metadata only, not generic agent liveness.
+     */
     observeRequest(sessionId: string, requestId: string): Promise<SessionExecutionReceipt>;
+    /**
+     * The prompt size of this Session's latest turn, or `undefined` when the host records no usage.
+     * A rotation limit is only applied to a measured Session.
+     */
+    contextTokens(sessionId: string): Promise<number | undefined>;
     observeHumanActivity(sessionId: string, since: number, knownRequestIds: readonly string[]): Promise<boolean | undefined>;
     validateAttachment(sessionId: string, workspaceId: string): Promise<SessionDescriptor>;
     rename(sessionId: string, title: string): Promise<{
@@ -90,6 +97,15 @@ export interface SessionBridge {
     }>;
     reconcile(sessionIds: readonly string[]): Promise<SessionDescriptor[]>;
 }
+/**
+ * The prompt size of a Session's latest turn, read from the Session's own usage record.
+ *
+ * `totalTokens` on an `assistant/message` is the size of the context that call sent — input, plus
+ * cached input, plus output — not a per-turn delta, so the newest one is the current window. Rotation
+ * reads it as "how much would the next turn re-send". Older hosts and some routes record no usage at
+ * all; `undefined` then means unmeasured, and no size limit is applied rather than a guessed one.
+ */
+export declare function contextTokensOf(events: readonly unknown[]): number | undefined;
 export declare function toBridgeError(error: unknown): LiveTeamsError;
 /**
  * The host's cold-safe Session reader.

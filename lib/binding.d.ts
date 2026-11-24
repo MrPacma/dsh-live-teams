@@ -1,5 +1,4 @@
 import { SessionBridge, SessionDescriptor } from "./session-bridge.js";
-//#region src/binding.d.ts
 /** Resolve symlinked temporary directories to one comparable form. */
 export declare function canonicalPath(value: string): string;
 export type WorkspaceGuardOptions = {
@@ -15,4 +14,3 @@ export type WorkspaceGuardOptions = {
  */
 export declare function assertSessionDescriptorInTeamWorkspace(options: Pick<WorkspaceGuardOptions, 'workspacePath'>, descriptor: SessionDescriptor): SessionDescriptor;
 export declare function assertSessionInTeamWorkspace(options: WorkspaceGuardOptions, sessionId: string): Promise<SessionDescriptor>;
-//#endregion
