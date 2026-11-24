@@ -46,7 +46,12 @@ export function createAssignmentRecovery(deps: {
       if (await assignmentDeliveryAllowed(deps.store, message, command.sessionId, command.bindingGeneration)) continue
       const result = await deps.bridge.removeQueuedRequest(command.sessionId, command.requestId)
       if (result.state === 'removed' || result.state === 'not-pending') settled.add(command.requestId)
-      if (result.state === 'refused' && result.reason === 'pending-queue-unavailable') {
+      // Keyed on the reason, not on the state: the host answers this capability gap as `unobservable`
+      // (the bridge maps a missing removal seam that way), while `refused` means an actual no. An
+      // earlier version tested `refused` only and therefore did nothing at all — 168 rows in 25 minutes
+      // on a real team. Every other `unobservable` reason is a transient inspection failure and must
+      // keep retrying.
+      if (result.reason === 'pending-queue-unavailable') {
         // The host cannot take the input back. Repeating the attempt cannot change that and only
         // writes journal rows, so it is recorded once, with how much work this covers.
         removalUnavailable = true

@@ -27,9 +27,12 @@ describe('obsolete accepted assignment reconciliation', () => {
    * The host cannot take queued input back. The command stays pending forever, so the old code paid
    * for the same refusal on every pass and wrote a journal row each time (1 387 rows in three days on
    * a real team). One refusal, one row, and no further attempts.
+   *
+   * The shape is the host's, not the obvious one: this capability gap arrives as `unobservable`, while
+   * `refused` is an actual no. The first version of this guard tested `refused` and did nothing.
    */
-  it('stops retrying and stops reporting once the host cannot remove queued input', async () => {
-    const removeQueuedRequest = vi.fn(async () => ({ state: 'refused' as const, reason: 'pending-queue-unavailable' }))
+  it.each(['unobservable', 'refused'] as const)('stops retrying and reporting once the host cannot remove queued input (%s)', async (state) => {
+    const removeQueuedRequest = vi.fn(async () => ({ state, reason: 'pending-queue-unavailable' }))
     const audit = vi.fn(async (_value: unknown) => undefined)
     const recovery = createAssignmentRecovery({
       teamId: 'team-1',
@@ -42,6 +45,22 @@ describe('obsolete accepted assignment reconciliation', () => {
     await recovery(); await recovery(); await recovery()
     expect(removeQueuedRequest).toHaveBeenCalledOnce()
     expect(audit).toHaveBeenCalledOnce()
-    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ kind: 'dispatch/obsolete-input', state: 'refused', reason: 'pending-queue-unavailable', skipped: 1 }))
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ kind: 'dispatch/obsolete-input', state, reason: 'pending-queue-unavailable', skipped: 1 }))
+  })
+
+  it('keeps retrying a transient inspection failure', async () => {
+    const removeQueuedRequest = vi.fn(async () => ({ state: 'unobservable' as const, reason: 'inspection-failed' }))
+    const audit = vi.fn(async (_value: unknown) => undefined)
+    const recovery = createAssignmentRecovery({
+      teamId: 'team-1',
+      store: { listTasks: async () => [task], readAttempts: async () => ({ schemaVersion: 1, teamId: 'team-1', revision: 2, attempts: [{ ...attempt, status: 'completed' }] }) },
+      bridge: { removeQueuedRequest },
+      listMessages: async () => [{ id: 'message1', teamId: 'team-1', from: 'scheduler', to: 'worker', kind: 'message', content: 'x', createdAt: 1, threadId: 'dispatch:task1:attempt1' }],
+      listCommands: async () => [{ causationId: 'message1', requestId: 'team-1:message1:worker:queue', sessionId: 's-worker', bindingGeneration: 1, mode: 'queue' }],
+      appendAudit: audit,
+    })
+    await recovery(); await recovery()
+    expect(removeQueuedRequest).toHaveBeenCalledTimes(2)
+    expect(audit).toHaveBeenCalledOnce()
   })
 })
