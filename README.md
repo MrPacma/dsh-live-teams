@@ -172,6 +172,19 @@ counter resets by construction.
 | `rotation.maxCompletedTasks` | `DSH_LIVE_TEAMS_ROTATION_MAX_TASKS` | Rotate after this many accepted tasks; `0` disables the rule | `5` |
 | `rotation.cooldownMs` | `DSH_LIVE_TEAMS_ROTATION_COOLDOWN_MS` | Quiet period after a refused rotation | `600000` |
 | `rotation.maxRotationsPerPass` | `DSH_LIVE_TEAMS_ROTATION_MAX_PER_PASS` | Members replaced per dispatch pass — each one creates a Session | `1` |
+| `rotation.excludeRoles` | `DSH_LIVE_TEAMS_ROTATION_EXCLUDE_ROLES` | Roles that are never rotated, comma-separated | `lead` |
+
+The lead is excluded by default, and that default was measured rather than assumed. A coordinator's
+state *is* the team: which tasks it closed, which decisions it made, what it already asked for. A
+fresh coordinator with no memory rebuilds that from the archive — on this team a rotated lead spent
+thirteen minutes and sixty calls listing the archive and reading sixteen accepted tasks, which is as
+much as three hours of its normal work ($0.046 against $0.147 for nine hours). Workers lose little by
+comparison: their state is the task document, which the new Session reads anyway.
+
+Excluding a role is not the same as disabling rotation: the remaining members keep their limits, and
+the excluded Session keeps a growing context until the host's own compaction bounds it. Set
+`excludeRoles: []` to rotate the lead anyway, or add another role whose memory matters more than its
+transcript.
 
 Rotation can be configured in two places. The profile row above is the deployment default; the Team
 tab's **Automatic rotation** card writes per-team overrides into `team.json`, so the human can turn it

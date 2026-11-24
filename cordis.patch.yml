@@ -34,3 +34,7 @@
           maxCompletedTasks: !!js Number(process.env.DSH_LIVE_TEAMS_ROTATION_MAX_TASKS ?? 5)
           cooldownMs: !!js Number(process.env.DSH_LIVE_TEAMS_ROTATION_COOLDOWN_MS ?? 600000)
           maxRotationsPerPass: !!js Number(process.env.DSH_LIVE_TEAMS_ROTATION_MAX_PER_PASS ?? 1)
+          # Roles whose memory is the work. The lead is excluded by default: a fresh coordinator
+          # rebuilds its state from the archive, and that reconstruction costs more than the rotation
+          # saves (measured: 13 minutes and 60 calls on a real team).
+          excludeRoles: !!js (process.env.DSH_LIVE_TEAMS_ROTATION_EXCLUDE_ROLES ?? 'lead').split(',').map((role) => role.trim()).filter(Boolean)

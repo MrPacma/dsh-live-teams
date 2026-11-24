@@ -34,6 +34,16 @@ export interface RotationConfig {
   readonly cooldownMs: number
   /** How many members one pass may rotate. One by default: each rotation creates a Session. */
   readonly maxRotationsPerPass: number
+  /**
+   * Roles that are never rotated.
+   *
+   * A coordinator's value is its accumulated state — which tasks it closed, which decisions it made,
+   * what it already asked for. Rotation deliberately drops that, and a fresh coordinator then tends to
+   * rebuild it from the archive: measured on a real team, a rotated lead spent thirteen minutes and
+   * sixty calls reading sixteen accepted tasks — as much as three hours of its normal work. Workers
+   * lose little by comparison, because their state is the task document.
+   */
+  readonly excludeRoles: readonly string[]
 }
 
 /**
@@ -48,6 +58,9 @@ export const DEFAULT_ROTATION_CONFIG: RotationConfig = Object.freeze({
   maxCompletedTasks: 5,
   cooldownMs: 10 * 60_000,
   maxRotationsPerPass: 1,
+  // The lead is excluded by default: it is the one member whose memory is the product, and a fresh
+  // coordinator rebuilds it expensively (see the field's comment).
+  excludeRoles: Object.freeze(['lead']),
 })
 
 export type RotationReason = 'max-context-tokens' | 'max-completed-tasks'
@@ -56,6 +69,7 @@ export type RotationSkip =
   | 'disabled'
   | 'no-session'
   | 'paused'
+  | 'excluded-role'
   | 'active-attempt'
   | 'open-tasks'
   | 'session-running'
@@ -64,7 +78,7 @@ export type RotationSkip =
 
 export interface RotationDecisionInput {
   readonly config: RotationConfig
-  readonly member: Pick<MemberRecord, 'sessionId' | 'availability'>
+  readonly member: Pick<MemberRecord, 'sessionId' | 'availability' | 'role'>
   readonly completedTasks: number
   readonly openTasks: number
   readonly activeAttempt: boolean
@@ -208,6 +222,7 @@ export function readRotationConfig(value: unknown): { config: RotationConfig; wa
     maxCompletedTasks: amount('maxCompletedTasks', DEFAULT_ROTATION_CONFIG.maxCompletedTasks),
     cooldownMs: amount('cooldownMs', DEFAULT_ROTATION_CONFIG.cooldownMs),
     maxRotationsPerPass: amount('maxRotationsPerPass', DEFAULT_ROTATION_CONFIG.maxRotationsPerPass),
+    excludeRoles: excludedRoles(source, warnings),
   }
   if (enabled && config.maxContextTokens === 0 && config.maxCompletedTasks === 0) {
     warnings.push('live-teams: rotation is enabled with both limits at 0; nothing will ever rotate')
@@ -216,11 +231,29 @@ export function readRotationConfig(value: unknown): { config: RotationConfig; wa
 }
 
 /**
- * Apply a team's overrides on top of the deployment row.
+ * The roles a deployment has excluded from rotation.
  *
- * Only defined, well-formed keys are taken. The store already validated the block when it was
- * written; this second check exists because `team.json` is a file on disk and a hand edit must not
- * be able to switch a limit off by writing `null` or a string.
+ * A wrong entry is dropped rather than fatal: the setting is a guard, and half a guard is better than
+ * a plugin that refuses to mount. The warning names what was ignored.
+ */
+function excludedRoles(source: Record<string, unknown>, warnings: string[]): readonly string[] {
+  const raw = source.excludeRoles
+  if (raw === undefined) return DEFAULT_ROTATION_CONFIG.excludeRoles
+  if (!Array.isArray(raw)) {
+    warnings.push('live-teams: rotation.excludeRoles must be a list of role ids; using the default')
+    return DEFAULT_ROTATION_CONFIG.excludeRoles
+  }
+  const roles = raw.filter((role): role is string => typeof role === 'string' && role.trim().length > 0).map((role) => role.trim())
+  if (roles.length !== raw.length) warnings.push('live-teams: rotation.excludeRoles ignored a value that is not a role id')
+  return roles
+}
+
+/**
+ * Apply a team's rotation overrides on top of the deployment row.
+ *
+ * Only the three numbers the panel owns are overridable here: `excludeRoles`, `cooldownMs` and
+ * `maxRotationsPerPass` stay operator decisions, because they shape what the product does rather than
+ * what one team wants this week.
  */
 export function effectiveRotationConfig(base: RotationConfig, override: unknown): RotationConfig {
   const source = record(override)
@@ -276,6 +309,9 @@ export function decideRotation(input: RotationDecisionInput): RotationDecision {
   const { config, member } = input
   if (!config.enabled) return { rotate: false, skipped: 'disabled' }
   if (text(member.sessionId) === undefined) return { rotate: false, skipped: 'no-session' }
+  // A coordinator's memory is the work; a worker's is the task document. Checked before the work
+  // guards so an excluded role never even reads its metrics.
+  if (config.excludeRoles.includes(member.role)) return { rotate: false, skipped: 'excluded-role' }
   if (member.availability === 'paused') return { rotate: false, skipped: 'paused' }
   // Work that is still owned is the one thing a rotation must never take away: the task contract,
   // its review route and the attempt all name this member id.

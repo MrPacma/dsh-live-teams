@@ -64,6 +64,17 @@ describe('readRotationConfig', () => {
     const { warnings } = readRotationConfig({ enabled: true, maxContextTokens: 0, maxCompletedTasks: 0 })
     expect(warnings.join(' ')).toContain('nothing will ever rotate')
   })
+
+  it('excludes the lead by default and accepts a replacement list', () => {
+    expect(readRotationConfig({ enabled: true }).config.excludeRoles).toEqual(['lead'])
+    expect(readRotationConfig({ enabled: true, excludeRoles: ['lead', 'oracle'] }).config.excludeRoles).toEqual(['lead', 'oracle'])
+    expect(readRotationConfig({ enabled: true, excludeRoles: [] }).config.excludeRoles).toEqual([])
+    const broken = readRotationConfig({ enabled: true, excludeRoles: 'lead' })
+    expect(broken.config.excludeRoles).toEqual(['lead'])
+    expect(broken.warnings.join(' ')).toContain('excludeRoles')
+    // A wrong entry is dropped, not fatal: the plugin still mounts with the rest of the guard.
+    expect(readRotationConfig({ enabled: true, excludeRoles: ['lead', 7] }).config.excludeRoles).toEqual(['lead'])
+  })
 })
 
 describe('decideRotation', () => {
@@ -90,6 +101,19 @@ describe('decideRotation', () => {
     expect(decideRotation({ ...base, config: config({ enabled: false }) })).toEqual({ rotate: false, skipped: 'disabled' })
     expect(decideRotation({ ...base, member: unboundMember() })).toEqual({ rotate: false, skipped: 'no-session' })
     expect(decideRotation({ ...base, member: member({ availability: 'paused' }) })).toEqual({ rotate: false, skipped: 'paused' })
+  })
+
+  /**
+   * A coordinator's memory is the work: it knows which tasks it closed and what it decided. Rotating
+   * one costs more than it saves — measured: a rotated lead spent thirteen minutes and sixty calls
+   * rebuilding state from the archive, as much as three hours of its normal work.
+   */
+  it('never rotates an excluded role, whatever its context', () => {
+    expect(decideRotation({ ...base, member: member({ role: 'lead' }), contextTokens: 900_000 })).toEqual({ rotate: false, skipped: 'excluded-role' })
+    expect(decideRotation({ ...base, member: member({ role: 'lead' }), completedTasks: 99 })).toEqual({ rotate: false, skipped: 'excluded-role' })
+    // The exclusion is a list, so a deployment can keep another role's memory too.
+    expect(decideRotation({ ...base, config: config({ excludeRoles: ['lead', 'oracle'] }), member: member({ role: 'oracle' }), contextTokens: 900_000 })).toEqual({ rotate: false, skipped: 'excluded-role' })
+    expect(decideRotation({ ...base, config: config({ excludeRoles: [] }), member: member({ role: 'lead' }), contextTokens: 900_000 })).toMatchObject({ rotate: true })
   })
 
   it('does not apply a size cap to an unmeasured Session', () => {
