@@ -10,6 +10,16 @@ export interface RotationConfig {
   readonly cooldownMs: number;
   /** How many members one pass may rotate. One by default: each rotation creates a Session. */
   readonly maxRotationsPerPass: number;
+  /**
+   * Roles that are never rotated.
+   *
+   * A coordinator's value is its accumulated state — which tasks it closed, which decisions it made,
+   * what it already asked for. Rotation deliberately drops that, and a fresh coordinator then tends to
+   * rebuild it from the archive: measured on a real team, a rotated lead spent thirteen minutes and
+   * sixty calls reading sixteen accepted tasks — as much as three hours of its normal work. Workers
+   * lose little by comparison, because their state is the task document.
+   */
+  readonly excludeRoles: readonly string[];
 }
 /**
  * The defaults are the numbers this team actually reached. 150k is roughly one task's worth of
@@ -19,10 +29,10 @@ export interface RotationConfig {
  */
 export declare const DEFAULT_ROTATION_CONFIG: RotationConfig;
 export type RotationReason = 'max-context-tokens' | 'max-completed-tasks';
-export type RotationSkip = 'disabled' | 'no-session' | 'paused' | 'active-attempt' | 'open-tasks' | 'session-running' | 'undelivered-messages' | 'below-threshold';
+export type RotationSkip = 'disabled' | 'no-session' | 'paused' | 'excluded-role' | 'active-attempt' | 'open-tasks' | 'session-running' | 'undelivered-messages' | 'below-threshold';
 export interface RotationDecisionInput {
   readonly config: RotationConfig;
-  readonly member: Pick<MemberRecord, 'sessionId' | 'availability'>;
+  readonly member: Pick<MemberRecord, 'sessionId' | 'availability' | 'role'>;
   readonly completedTasks: number;
   readonly openTasks: number;
   readonly activeAttempt: boolean;
@@ -144,11 +154,11 @@ export declare function readRotationConfig(value: unknown): {
   warnings: readonly string[];
 };
 /**
- * Apply a team's overrides on top of the deployment row.
+ * Apply a team's rotation overrides on top of the deployment row.
  *
- * Only defined, well-formed keys are taken. The store already validated the block when it was
- * written; this second check exists because `team.json` is a file on disk and a hand edit must not
- * be able to switch a limit off by writing `null` or a string.
+ * Only the three numbers the panel owns are overridable here: `excludeRoles`, `cooldownMs` and
+ * `maxRotationsPerPass` stay operator decisions, because they shape what the product does rather than
+ * what one team wants this week.
  */
 export declare function effectiveRotationConfig(base: RotationConfig, override: unknown): RotationConfig;
 /**
