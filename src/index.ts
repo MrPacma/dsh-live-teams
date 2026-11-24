@@ -35,6 +35,8 @@ export { TaskStore, createTaskStore, renderDocument, routeText, assignmentRouteT
 export type { TaskKind, TaskStatus, TaskRoute, HumanContact, TeamTask, TaskAttempt, AttemptsState, TasksState, ClaimTaskRequest, ClaimTaskResult, AcknowledgeTaskRequest, CreateTaskRequest, CreateTaskResult, ListTasksOptions, ReadTaskResult, SubmissionArtifact, SubmissionSourceArtifact, SubmissionCheck, Submission, ReviewFinding, ReviewVerdict, ReviewRound, SubmissionsState, ReviewsState, SubmitTaskRequest, AcceptTaskRequest, AcceptTaskResult, ReviseTaskRequest, ReviseTaskResult, ReviewTaskRequest, ReviewTaskResult } from './task-store.js'
 export { contextTokensOf, createSessionBridge, modelSelectionOf, toBridgeError } from './session-bridge.js'
 export { assertSessionDescriptorInTeamWorkspace, assertSessionInTeamWorkspace, canonicalPath } from './binding.js'
+export { applySessionTitle, isRetiredTitle, retiredSessionTitle, rotationStamp, sessionTitleFor } from './session-title.js'
+export type { SessionTitleDependencies, SessionTitleReason, SessionTitleResult } from './session-title.js'
 export { parseRoleDocument, readRoleRegistry, readRoleRegistrySync } from './roles.js'
 export type { LiveTeamsRole, ParsedRole, RolePermissions, RoleRegistry, RoleRegistrySync } from './roles.js'
 export type { LiveTeamsService, PluginConfig } from './plugin.js'

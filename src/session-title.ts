@@ -10,9 +10,15 @@
  * - a title is a convenience, never a precondition. The only capability this
  *   module is given is `rename`, so it cannot prompt, resume or deliver, and a
  *   failure is reported instead of failing the membership operation.
+ *
+ * Rotation adds a third case: the Session that was replaced stays readable, and
+ * two Sessions with the same name — one live, one retired — is exactly the
+ * confusion a human hits after the first rotation. The retired one is stamped
+ * `(Rotated DD.MM.YYYY HH:mm)` on top of whatever name it already had, so a
+ * manual rename by the human survives.
  */
 
-export type SessionTitleReason = 'member-added' | 'member-renamed'
+export type SessionTitleReason = 'member-added' | 'member-renamed' | 'member-rotated'
 
 export type SessionTitleResult = {
   readonly from: string | null
@@ -32,8 +38,50 @@ export function sessionTitleFor(displayName: string, teamName: string): string {
 }
 
 /**
+ * Longest title this plugin writes. The base is what gets trimmed, never the stamp: a truncated
+ * marker would make two rotations look identical.
+ */
+const MAX_TITLE_LENGTH = 200
+
+const RETIRED_TITLE = / \(Rotated \d{2}\.\d{2}\.\d{4} \d{2}:\d{2}\)$/u
+
+/**
+ * The stamp a retired Session carries.
+ *
+ * Local time from the date getters rather than `toLocaleString`: a title is durable data that a human
+ * compares across sessions, and it must not change shape with the host's locale. `padStart` keeps
+ * `01.02.2026 03:04` sortable and unambiguous.
+ */
+export function rotationStamp(at: number): string {
+  const date = new Date(at)
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+/** Whether a title already carries a rotation stamp, so a repeated pass renames nothing. */
+export function isRetiredTitle(title: string): boolean {
+  return RETIRED_TITLE.test(title.trim())
+}
+
+/**
+ * The title a replaced Session keeps: its own name, plus which rotation retired it.
+ *
+ * The base is the Session's *current* title, not the member's display name — a human who renamed the
+ * conversation to something meaningful should not lose that to a bookkeeping suffix.
+ */
+export function retiredSessionTitle(base: string, at: number): string {
+  const suffix = ` (Rotated ${rotationStamp(at)})`
+  const trimmed = base.trim().length > 0 ? base.trim() : 'Session'
+  const room = Math.max(0, MAX_TITLE_LENGTH - suffix.length)
+  const head = trimmed.length <= room ? trimmed : `${trimmed.slice(0, Math.max(0, room - 1)).trimEnd()}…`
+  return `${head}${suffix}`
+}
+
+/**
  * Bring one Session's title in line with its membership.
  *
+ * @param request.title - an explicit title, used by rotation; every membership path keeps deriving
+ *   `<name> - <team>` from the member.
  * @returns the outcome, or `undefined` when the title could not be set — the
  *   caller must treat that as a reported inconvenience, not as a failure.
  */
@@ -45,9 +93,10 @@ export async function applySessionTitle(
     teamName: string
     reason: SessionTitleReason
     previousTitle?: string
+    title?: string
   },
 ): Promise<SessionTitleResult | undefined> {
-  const to = sessionTitleFor(request.displayName, request.teamName)
+  const to = request.title ?? sessionTitleFor(request.displayName, request.teamName)
   const from = request.previousTitle ?? null
   if (request.previousTitle === to) return { from, to, reason: request.reason, renamed: false }
   try {

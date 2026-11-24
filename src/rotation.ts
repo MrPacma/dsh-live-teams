@@ -92,6 +92,8 @@ export interface RotationFacts {
    * one visible way rotation could change the quality of the work.
    */
   readonly modelSelection?: ModelSelection | undefined
+  /** The old Session's current title, so the retired one keeps the name the human knows. */
+  readonly sessionTitle?: string | undefined
 }
 
 export interface RotationOutcome {
@@ -105,6 +107,8 @@ export interface RotationOutcome {
   readonly contextTokens?: number | undefined
   /** The model carried onto the replacement Session, when the old one named one. */
   readonly model?: ModelSelection | undefined
+  /** The title the retired Session now carries, when it was stamped. */
+  readonly retiredTitle?: string | undefined
 }
 
 export interface RotationCommit {
@@ -135,6 +139,19 @@ export interface RotationPorts {
    * profile. Returns false when the host exposes no such seam.
    */
   readonly applyModelSelection?: ((sessionId: string, selection: ModelSelection) => Promise<boolean>) | undefined
+  /**
+   * Stamp the replaced Session so the two Sessions are distinguishable in the session list.
+   *
+   * Returns the title that was applied, or `undefined` when nothing was renamed (already stamped, no
+   * title service, or the base was refused). Called only after the membership commit: a rotation that
+   * was refused must not rename a Session that stays a member.
+   */
+  readonly retireTitle?: ((request: {
+    sessionId: string
+    displayName: string
+    previousTitle?: string
+    at: number
+  }) => Promise<string | undefined>) | undefined
   readonly newSessionId: () => string
   readonly audit: (event: Record<string, unknown>) => Promise<void>
   /** Wire the new Session into the host's session→binding map before its first turn. */
@@ -329,6 +346,24 @@ export function createRotationService(ports: RotationPorts): RotationService {
       await ports.audit({ kind: 'session/orphaned', teamId: ports.teamId, sessionId, reason: messageOf(error), actor: 'rotation', at: now }).catch(() => undefined)
       throw error
     }
+    // The replaced Session keeps its name, so it has to say which rotation retired it: after the
+    // first rotation a human sees two Sessions with the same name, and "which of these is the live
+    // lead" is the first question they ask. Best effort and after the commit — a refused rotation
+    // must not rename a member that is still on the team.
+    let retiredTitle: string | undefined
+    if (ports.retireTitle !== undefined) {
+      try {
+        const stamped = await ports.retireTitle({
+          sessionId: previousSessionId,
+          displayName: committed.value.previous.displayName,
+          ...(facts.sessionTitle === undefined ? {} : { previousTitle: facts.sessionTitle }),
+          at: now,
+        })
+        if (stamped !== undefined) retiredTitle = stamped
+      } catch (error) {
+        logger(`live-teams: retired Session ${previousSessionId} kept its title: ${messageOf(error)}`)
+      }
+    }
     const outcome: RotationOutcome = {
       previousMemberId: committed.value.previous.memberId,
       memberId,
@@ -339,6 +374,7 @@ export function createRotationService(ports: RotationPorts): RotationService {
       completedTasks: facts.completedTasks,
       ...(contextTokens === undefined ? {} : { contextTokens }),
       ...(model === undefined ? {} : { model }),
+      ...(retiredTitle === undefined ? {} : { retiredTitle }),
     }
     await ports.audit({
       kind: 'member/rotated',
@@ -356,6 +392,7 @@ export function createRotationService(ports: RotationPorts): RotationService {
       // The model is in the journal because "the lead got slower after a rotation" is otherwise
       // invisible: the member name and role look identical on both sides of the event.
       ...(model === undefined ? {} : { model }),
+      ...(retiredTitle === undefined ? {} : { retiredTitle }),
       at: now,
       actor: 'rotation',
     })

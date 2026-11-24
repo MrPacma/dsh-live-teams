@@ -26,7 +26,7 @@ import { gitChangedPaths, gitCommittedPaths, workspaceMode } from './changed-pat
 import { snapshotTree } from './tree-snapshot.js'
 import { baseInfo, commitPaths, commitPathsOf, integrateCommit, pinCommit, refTip } from './git-artifacts.js'
 import { assertSessionDescriptorInTeamWorkspace, assertSessionInTeamWorkspace } from './binding.js'
-import { applySessionTitle } from './session-title.js'
+import { applySessionTitle, isRetiredTitle, retiredSessionTitle, sessionTitleFor } from './session-title.js'
 import {
   registerLiveTeamsRoutes,
   type LiveTeamsAuditRecord,
@@ -546,15 +546,22 @@ export function apply(ctx: HostContext, config: PluginConfig = {}): void {
       let sessionStatus: 'running' | 'idle' | 'unknown' = 'unknown'
       let agentPreset: string | undefined
       let modelSelection: ModelSelection | undefined
+      let sessionTitle: string | undefined
       if (sessionId !== undefined) {
         const agent = ctx.agents?.get?.(sessionId) as { status?: unknown } | undefined
         sessionStatus = agent === undefined ? 'unknown' : agent.status === 'running' ? 'running' : agent.status === 'idle' ? 'idle' : 'unknown'
-        try { agentPreset = (await bridge.inspect(sessionId))?.agentPreset } catch { agentPreset = undefined }
+        // One inspection answers two questions: which preset the replacement should use, and which
+        // name the retired Session should keep.
+        try {
+          const descriptor = await bridge.inspect(sessionId)
+          agentPreset = descriptor?.agentPreset
+          sessionTitle = descriptor?.title
+        } catch { agentPreset = undefined; sessionTitle = undefined }
         // The Session's own model choice: `session.create` accepts none, so it has to be read here
         // and re-recorded on the replacement, or the member silently drops to the deployment default.
         modelSelection = await bridge.modelSelection(sessionId)
       }
-      return { completedTasks, openTasks, activeAttempt, sessionStatus, undeliveredMessages, agentPreset, modelSelection }
+      return { completedTasks, openTasks, activeAttempt, sessionStatus, undeliveredMessages, agentPreset, modelSelection, sessionTitle }
     }
     // The binding is created after the service, and the service needs the binding to register the
     // replacement Session in the session→binding map before that Session's first turn.
@@ -596,6 +603,31 @@ export function apply(ctx: HostContext, config: PluginConfig = {}): void {
         }
         agent.model.select(selection)
         return true
+      },
+      /**
+       * The retired Session is stamped on top of the name it already has, so a human rename survives
+       * the bookkeeping. The base falls back to the membership title only when the Session has none,
+       * and an already stamped title is left alone: a second pass over the same Session renames
+       * nothing.
+       */
+      retireTitle: async (request) => {
+        const base = request.previousTitle ?? sessionTitleFor(request.displayName, teamNameSync())
+        if (isRetiredTitle(base)) return undefined
+        const result = await applySessionTitle(
+          {
+            rename: (sessionId, title) => bridge.rename(sessionId, title),
+            ...(ctx.logger?.warn === undefined ? {} : { warn: (message: string) => ctx.logger?.warn?.(message) }),
+          },
+          {
+            sessionId: request.sessionId,
+            displayName: request.displayName,
+            teamName: teamNameSync(),
+            reason: 'member-rotated',
+            title: retiredSessionTitle(base, request.at),
+            previousTitle: base,
+          },
+        )
+        return result?.renamed === true ? result.to : undefined
       },
       audit: async (event) => { await audit(event) },
       onRotated: (outcome: RotationOutcome) => {

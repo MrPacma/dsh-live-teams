@@ -190,6 +190,7 @@ type Harness = {
   audits: Record<string, unknown>[]
   sessions: string[]
   applied: { sessionId: string; selection: ModelSelection }[]
+  retired: { sessionId: string; displayName: string; previousTitle?: string; at: number }[]
   state: TeamState
   notices: string[]
 }
@@ -202,7 +203,7 @@ function harness(input: {
   createSession?: (request: { sessionId: string; workspaceId: string; agentPreset?: string }) => Promise<void>
 } = {}): Harness {
   const current = team(input.members ?? [member()])
-  const h: Harness = { outcomes: [], audits: [], sessions: [], state: current, notices: [], applied: [], ports: {} as RotationPorts }
+  const h: Harness = { outcomes: [], audits: [], sessions: [], state: current, notices: [], applied: [], retired: [], ports: {} as RotationPorts }
   let counter = 0
   const contextInput = input.context
   const measure = typeof contextInput === 'function'
@@ -224,6 +225,7 @@ function harness(input: {
     createSession: input.createSession ?? (async (request) => { h.sessions.push(request.sessionId) }),
     newSessionId: () => `session-new-${String(++counter)}`,
     applyModelSelection: async (sessionId, selection) => { h.applied.push({ sessionId, selection }); return true },
+    retireTitle: async (request) => { h.retired.push(request); return `${request.previousTitle ?? request.displayName} (Rotated 24.11.2026 13:45)` },
     audit: async (event) => { h.audits.push(event) },
     onRotated: (outcome) => { h.outcomes.push(outcome); h.notices.push(outcome.sessionId) },
     titleSession: async (sessionId) => { h.notices.push(`title:${sessionId}`) },
@@ -365,6 +367,45 @@ describe('rotation service', () => {
     const ports: RotationPorts = { ...h.ports, applyModelSelection: async () => { throw new Error('agent went away') } }
     const [outcome] = await createRotationService(ports).check()
     expect(outcome?.model).toBeUndefined()
+    expect(h.sessions).toHaveLength(1)
+  })
+
+  it('stamps the replaced Session with the name it already had', async () => {
+    const h = harness({ context: 200_000, facts: async () => facts({ sessionTitle: 'Лидер - Uniwire' }) })
+    const [outcome] = await createRotationService(h.ports).check()
+    expect(h.retired).toHaveLength(1)
+    expect(h.retired[0]).toMatchObject({ sessionId: 'session-1', displayName: 'Worker', previousTitle: 'Лидер - Uniwire' })
+    expect(outcome?.retiredTitle).toBe('Лидер - Uniwire (Rotated 24.11.2026 13:45)')
+    expect(h.audits.find((event) => event.kind === 'member/rotated')?.retiredTitle).toBe('Лидер - Uniwire (Rotated 24.11.2026 13:45)')
+  })
+
+  it('leaves the title alone when the rotation itself was refused', async () => {
+    const h = harness({ context: 200_000, facts: async () => facts({ sessionTitle: 'Worker - Uniwire' }) })
+    const realCommit = h.ports.commit
+    h.ports = {
+      ...h.ports,
+      commit: async (request) => {
+        h.state = { ...h.state, members: [member({ sessionId: 'session-rebound' })] }
+        return await realCommit(request)
+      },
+    }
+    expect(await createRotationService(h.ports).check()).toEqual([])
+    expect(h.retired).toEqual([])
+  })
+
+  it('rotates even when the retired Session cannot be renamed', async () => {
+    const h = harness({ context: 200_000, facts: async () => facts({ sessionTitle: 'Worker - Uniwire' }) })
+    const ports: RotationPorts = { ...h.ports, retireTitle: async () => { throw new Error('no title service') } }
+    const [outcome] = await createRotationService(ports).check()
+    expect(outcome?.retiredTitle).toBeUndefined()
+    expect(h.sessions).toHaveLength(1)
+  })
+
+  it('does not require a title seam at all', async () => {
+    const h = harness({ context: 200_000 })
+    const ports: RotationPorts = { ...h.ports, retireTitle: undefined }
+    const [outcome] = await createRotationService(ports).check()
+    expect(outcome?.retiredTitle).toBeUndefined()
     expect(h.sessions).toHaveLength(1)
   })
 

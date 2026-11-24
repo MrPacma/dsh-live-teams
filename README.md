@@ -210,6 +210,12 @@ profile. The choice that was carried is in the `member/rotated` journal event �
 after a rotation" is otherwise invisible, because the member name and role look identical on both
 sides.
 
+The replaced Session keeps a name of its own: it is retitled `<its current title> (Rotated
+DD.MM.YYYY HH:mm)` in the host's local time, so the session list shows which of the two Sessions is
+live. A name the human gave it is preserved — the stamp is appended, not substituted — and a title that
+already carries one is left alone. A failed rename is reported and never fails the rotation: a title is
+a convenience, the membership commit is the truth.
+
 Rotation ships off and enabling it changes the team's composition, which is why the human's switch
 exists rather than an always-on default. To see what it would do without enabling it, read the journal
 after a pass or run the decision table in `src/rotation.test.ts`.

@@ -128,7 +128,7 @@ export type LiveTeamsCreateMemberRequest = {
 export type LiveTeamsSessionTitleResult = {
   readonly from: string | null
   readonly to: string
-  readonly reason: 'member-added' | 'member-renamed'
+  readonly reason: 'member-added' | 'member-renamed' | 'member-rotated'
   readonly renamed: boolean
 }
 
@@ -269,7 +269,7 @@ export type LiveTeamsAuditRecord = {
   readonly sessionId: string
   readonly from: string | null
   readonly to: string
-  readonly reason: 'member-added' | 'member-renamed'
+  readonly reason: 'member-added' | 'member-renamed' | 'member-rotated'
   readonly at: number
   readonly actor: MutationActor
 } | {
