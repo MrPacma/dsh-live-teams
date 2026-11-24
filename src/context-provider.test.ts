@@ -27,6 +27,17 @@ describe('membership context provider', () => {
   it('reports store failures', () => { const failures: unknown[] = []; const provider = createMembershipContextProvider({ store: fakeStore(() => { throw new Error('state corrupt') }), teamId: 'team-1', onError: (error) => failures.push(error) }); expect(provider.text({ agent: { session: { id: 's-1' } } })).toBe(''); expect(failures).toHaveLength(1); expect(failures[0]).toMatchObject({ message: 'state corrupt' }) })
   it('renders only coordination fields', () => { const rendered = renderMembership({ ...member, notes: 'SECRET-PEER-TEXT', apiKey: 'SECRET-KEY' }, { teamId: 'team-1' }); expect(rendered).not.toMatch(/SECRET-PEER-TEXT/); expect(rendered).not.toMatch(/SECRET-KEY/) })
   it('accepts roles list', () => { expect(renderMembership({ ...member, roles: ['engineer', 'reviewer'] }, { teamId: 'team-1' })).toMatch(/^Roles: engineer, reviewer$/m) })
+  /**
+   * A replacement Session has no memory, and the first thing a coordinator does with no memory is
+   * audit everything: on a real team a rotated lead listed the archive and read sixteen accepted tasks
+   * in five minutes. The context has to say what the Session is, or the rotation pays for itself twice.
+   */
+  it('tells a replacement Session not to reconstruct history', () => {
+    const rotated = renderMembership({ ...member, rotatedFrom: 'm-0' }, { teamId: 'team-1' })
+    expect(rotated).toContain('You are a replacement Session')
+    expect(rotated).toContain('do not list or read archived tasks')
+    expect(renderMembership(member, { teamId: 'team-1' })).not.toContain('You are a replacement Session')
+  })
   it('includes only own role guidance and keeps volatile fields last', () => {
     const registry = { resolve: (id: string) => id === 'engineer' ? parseRoleDocument('engineer', '# Engineer\nOwn craft') : id === 'reviewer' ? parseRoleDocument('reviewer', '# Reviewer\nForeign craft') : undefined }
     const rendered = renderMembership({ ...member, role: 'engineer' }, { teamId: 'team-1', roleRegistry: registry, activeAttemptId: 'attempt-1' })

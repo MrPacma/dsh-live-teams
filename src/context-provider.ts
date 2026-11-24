@@ -210,6 +210,14 @@ export function renderMembership(member: MembershipMember, scope: MembershipScop
     'Who is on this team now',
     ...roster,
     `You are ${text(member.displayName) ?? text(member.memberId) ?? 'unnamed'} (${ownRole}). Lead: ${lead?.displayName ?? 'not set'}.`,
+    // A replacement Session has no memory of what came before it, and the first thing a coordinator
+    // does with no memory is audit everything: measured on this team, a rotated lead listed the archive
+    // and read sixteen accepted tasks in five minutes, paying for documents nobody needed. The record
+    // is durable and already summarised by the roster and the journal; the new Session needs the
+    // current work, not a reconstruction.
+    ...(text(member.rotatedFrom) === undefined ? [] : [
+      'You are a replacement Session: this member was rotated and the previous transcript was deliberately not carried over. Do not reconstruct history — do not list or read archived tasks, and do not re-audit accepted work. Work from your active assignment, this context and the records you are given.',
+    ]),
     `You may address: ${permittedTargets(state, member, scope.activeTask, scope.tasks)}`,
     ...(scope.comments === undefined || scope.comments.length === 0 ? [] : [`Comments for you: ${scope.comments.map((comment) => `${comment.from}: ${comment.content}`).join(' | ')}`]),
     // The tools of this role, and the ones addressed to others. The host cannot hide a tool from a

@@ -404,7 +404,7 @@ export function registerMemberTools(registry: ToolRegistry, resolve: MemberTools
     }))
     registry.register(defineTool({
       name: 'live_team_read_task',
-      description: 'Read a durable task and its authored document.',
+      description: 'Read a durable task and its authored document. An archived task is history: read it for a specific question, never to rebuild state.',
       parameters: { taskId: { type: 'string', required: true } },
       output: { schema: { type: 'object', additionalProperties: false, properties: { task: { type: 'json', required: true }, document: { type: 'string', required: true }, submissions: { type: 'array', required: true }, rounds: { type: 'array', required: true } } }, render: (_args, value) => renderOutput(value) },
       execute: async (args: { taskId: string }, exec) => {
@@ -416,7 +416,7 @@ export function registerMemberTools(registry: ToolRegistry, resolve: MemberTools
     }))
     registry.register(defineTool({
       name: 'live_team_list_tasks',
-      description: 'List durable tasks for this team, newest first; archived tasks are hidden unless requested.',
+      description: 'List durable tasks for this team, newest first; archived tasks are hidden unless requested. Archived rows are history: ask for them only to answer a specific question.',
       parameters: { includeArchived: { type: 'boolean' } },
       output: { schema: { type: 'object', additionalProperties: false, properties: { tasks: { type: 'array', required: true, items: { type: 'object', additionalProperties: true, properties: { documentMissing: { type: 'boolean' } } } } } }, render: (_args, value) => renderOutput(value) },
       execute: async (args: { includeArchived?: boolean }, exec) => {
