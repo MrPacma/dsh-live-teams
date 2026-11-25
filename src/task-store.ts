@@ -598,6 +598,44 @@ function memberById(team: TeamState, id: string): MemberRecord | undefined {
   return team.members.find((member) => member.memberId === id)
 }
 
+/**
+ * A route target named the way a model actually writes it.
+ *
+ * Ids are exact, `human` is a target of its own, and a display name is accepted when it identifies
+ * exactly one member — the mailbox resolves names the same way. `lead` is accepted as well because it
+ * is unambiguous in a team that has one, and a model reaching for "send it back to the lead" should not
+ * have to look an id up first. An ambiguous or unknown name returns nothing, so the caller can name
+ * the valid ids instead of guessing.
+ */
+function routeTarget(team: TeamState, value: unknown): string | undefined {
+  if (!nonEmpty(value)) return undefined
+  const requested = value.trim()
+  if (requested === 'human') return 'human'
+  const byId = memberById(team, requested)
+  if (byId !== undefined) return byId.memberId
+  if (requested.toLowerCase() === 'lead') {
+    const lead = resolveLeadMemberId(team)
+    if (lead !== undefined) return lead
+  }
+  const matches = team.members.filter((member) => member.displayName.trim().toLowerCase() === requested.toLowerCase())
+  return matches.length === 1 ? matches[0]?.memberId : undefined
+}
+
+/**
+ * A route serialised as JSON text.
+ *
+ * Models emit `"route": "{\"type\":\"report\",\"to\":\"<id>\"}"` often enough that refusing it costs a
+ * whole turn of retries — and the retries are what turned a one-line contract into a stuck queue. Only
+ * an object is parsed: a bare word is not a route, and the error names the shapes that are.
+ */
+function jsonObjectRoute(text: string): unknown {
+  const trimmed = text.trim()
+  if (!trimmed.startsWith('{')) return undefined
+  try { return JSON.parse(trimmed) as unknown } catch { return undefined }
+}
+
+const ROUTE_SHAPES = '{"type":"review","reviewer":"<member id>"} or {"type":"report","to":"<member id>"|"lead"|"human"}'
+
 function isLead(team: TeamState, actor: string): boolean {
   if (team.leadMemberId !== undefined) return team.leadMemberId === actor && memberById(team, actor) !== undefined
   const leads = team.members.filter((member) => member.role === 'lead')
@@ -614,20 +652,26 @@ function isLeadOrHuman(team: TeamState, actor: string): boolean {
 function leadMemberIdForMessage(team: TeamState): string { return team.leadMemberId ?? team.members.find((member) => member.role === 'lead')?.memberId ?? 'the lead' }
 
 function validateRoute(route: unknown, team: TeamState, assignee: string | undefined): TaskRoute {
+  // A JSON string is parsed once and then validated exactly like an object; a bare word is refused
+  // with the shapes that work, because the previous message ("route must be a report, review, …")
+  // read as if `"report"` were acceptable and cost the lead eight consecutive failed calls.
+  const parsed = typeof route === 'string' ? jsonObjectRoute(route) : route
   // The portable protocol describes `interactive → human, then reviewer`. The transitions implement
   // `report` and `review` only, so a task with the nested shape could never be completed: it is
   // refused where it is written, with the working alternative named.
-  if (objectRecord(route)?.type === 'interactive') fail('the interactive route shape is not implemented: use {"type":"review","reviewer":"<member id>"} or {"type":"report","to":"human"}')
-  const value = objectRecord(route)
-  if (value === undefined || typeof value.type !== 'string') fail('route must be a report, review, interactive, or custom route')
+  if (objectRecord(parsed)?.type === 'interactive') fail('the interactive route shape is not implemented: use {"type":"review","reviewer":"<member id>"} or {"type":"report","to":"human"}')
+  const value = objectRecord(parsed)
+  if (value === undefined || typeof value.type !== 'string') fail(`route must be an object, not ${typeof route === 'string' ? 'a string' : 'that'}: ${ROUTE_SHAPES} (a JSON string of the same object is accepted)`)
   if (value.type === 'report') {
-    if (value.to !== 'human' && (typeof value.to !== 'string' || memberById(team, value.to) === undefined)) fail('report route must name a current member or human')
-    return { type: 'report', to: value.to as string | 'human' }
+    const target = routeTarget(team, value.to)
+    if (target === undefined) fail(`report route must name a current member id, a unique display name, "lead" or "human"; members: ${team.members.map((member) => `${member.memberId} (${member.displayName})`).join(', ')}`)
+    return { type: 'report', to: target }
   }
   if (value.type === 'review') {
-    if (typeof value.reviewer !== 'string' || memberById(team, value.reviewer) === undefined) fail('review route must name a current member')
-    if (assignee !== undefined && value.reviewer === assignee) fail('reviewer cannot be the assignee; nobody reviews their own work')
-    return { type: 'review', reviewer: value.reviewer }
+    const reviewer = routeTarget(team, value.reviewer)
+    if (reviewer === undefined) fail(`review route must name a current member by id or unique display name; members: ${team.members.map((member) => `${member.memberId} (${member.displayName})`).join(', ')}`)
+    if (assignee !== undefined && reviewer === assignee) fail('reviewer cannot be the assignee; nobody reviews their own work')
+    return { type: 'review', reviewer }
   }
   if (value.type === 'interactive') {
     if (value.then === undefined) fail('interactive route requires a follow-up route')
@@ -637,7 +681,7 @@ function validateRoute(route: unknown, team: TeamState, assignee: string | undef
     if (!nonEmpty(value.description)) fail('custom route description must be non-empty')
     return { type: 'custom', description: value.description.trim() }
   }
-  fail(`unsupported task route: ${value.type}`)
+  fail(`unsupported task route: ${value.type}; use ${ROUTE_SHAPES}`)
 }
 
 /**

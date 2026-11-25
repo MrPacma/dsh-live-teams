@@ -46,6 +46,42 @@ async function cleanup(workspace: string): Promise<void> { await rm(workspace, {
 function execution(sessionId: string): ToolRunContext { return { agent: { session: { id: sessionId } } } as unknown as ToolRunContext }
 
 describe('B19 durable task store', () => {
+  /**
+   * The route is the field a model gets wrong, and every wrong shape costs a turn. The lead sent
+   * `"route":"report"` and then `"route":"{\"type\":\"review\",…}"` — eight consecutive refusals with a
+   * message that only said what was wrong, never what works. The store now parses a JSON string, accepts
+   * a display name or `lead` where an id was expected, and names the valid targets when it refuses.
+   */
+  it('accepts a route as an object, as JSON text, and by display name', async () => {
+    const value = await fresh()
+    try {
+      const object = await value.store.createTask(request({ title: 'object route' }))
+      expect(object.task.route).toEqual({ type: 'review', reviewer: 'reviewer' })
+
+      const text = await value.store.createTask(request({ title: 'json text route', route: '{"type":"review","reviewer":"reviewer"}' }))
+      expect(text.task.route).toEqual({ type: 'review', reviewer: 'reviewer' })
+
+      const byName = await value.store.createTask(request({ title: 'display name route', route: { type: 'review', reviewer: 'Reviewer' } }))
+      expect(byName.task.route).toEqual({ type: 'review', reviewer: 'reviewer' })
+
+      const toLead = await value.store.createTask(request({ title: 'lead route', route: { type: 'report', to: 'lead' } }))
+      expect(toLead.task.route).toEqual({ type: 'report', to: 'lead' })
+
+      const toHuman = await value.store.createTask(request({ title: 'human route', route: '{"type":"report","to":"human"}' }))
+      expect(toHuman.task.route).toEqual({ type: 'report', to: 'human' })
+    } finally { await cleanup(value.workspace) }
+  })
+
+  it('names the accepted shapes and the valid targets when a route is refused', async () => {
+    const value = await fresh()
+    try {
+      // A bare word is not a route: the message has to say so, and say what is.
+      await expect(value.store.createTask(request({ title: 'bare', route: 'report' }))).rejects.toThrow(/route must be an object, not a string[\s\S]*"type":"report"/u)
+      await expect(value.store.createTask(request({ title: 'unknown target', route: { type: 'report', to: 'nobody' } }))).rejects.toThrow(/report route must name a current member[\s\S]*Worker/u)
+      await expect(value.store.createTask(request({ title: 'unknown reviewer', route: { type: 'review', reviewer: 'nobody' } }))).rejects.toThrow(/review route must name a current member[\s\S]*Reviewer/u)
+    } finally { await cleanup(value.workspace) }
+  })
+
   it('warns about unmatched contract paths without refusing creation or update', async () => {
     const value = await fresh()
     try {
