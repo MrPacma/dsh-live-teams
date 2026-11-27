@@ -471,6 +471,17 @@ export const css = `
   display: flex;
   flex-direction: column;
   gap: 14px;
+  /*
+   * The add-member dialog holds a Session picker whose length is unbounded (a workspace keeps every
+   * Session it ever ran; 20+ candidates on a real team). Scrolling the *form* rather than the list
+   * keeps one scrollbar, and the primitive Modal's footer — with the create button — stays reachable
+   * because it lives outside this form.
+   */
+  max-height: min(60vh, 520px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-inline: 2px;
+  scrollbar-gutter: stable;
 }
 
 .dshLiveTeamsCandidateList {
